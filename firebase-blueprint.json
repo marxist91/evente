@@ -1,0 +1,106 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "displayName": { "type": "string", "description": "User's display name" },
+        "email": { "type": "string", "format": "email", "description": "User's email" },
+        "photoURL": { "type": "string", "description": "User's profile photo URL" },
+        "role": { "type": "string", "enum": ["admin", "user"], "description": "User role" }
+      },
+      "required": ["uid", "displayName", "email"]
+    },
+    "Event": {
+      "title": "Event",
+      "description": "Cultural event or party",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "location": { "type": "string" },
+        "city": { "type": "string" },
+        "category": { "type": "string", "enum": ["culture", "party", "concert", "other"] },
+        "imageUrl": { "type": "string" },
+        "authorUid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "date", "city", "category"]
+    },
+    "Moment": {
+      "title": "Moment",
+      "description": "Short video shared from an event",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "thumbnailUrl": { "type": "string" },
+        "caption": { "type": "string" },
+        "city": { "type": "string" },
+        "eventId": { "type": "string" },
+        "authorUid": { "type": "string" },
+        "authorName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["videoUrl", "authorUid", "city"]
+    },
+    "Hotspot": {
+      "title": "Hotspot",
+      "description": "Popular venues or locations",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "type": "string", "enum": ["restaurant", "bar", "club", "beach", "monument", "other"] },
+        "imageUrl": { "type": "string" },
+        "location": { "type": "string" },
+        "city": { "type": "string" },
+        "rating": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/users/{uid}/fcmTokens/{tokenId}": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "token": { "type": "string" },
+          "city": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "description": "User's FCM tokens for push notifications"
+    },
+    "/events/{eventId}": {
+      "schema": "Event",
+      "description": "List of events"
+    },
+    "/moments/{momentId}": {
+      "schema": "Moment",
+      "description": "Shared video moments"
+    },
+    "/hotspots/{hotspotId}": {
+      "schema": "Hotspot",
+      "description": "Popular venues or locations"
+    },
+    "/users/{uid}/favorites/{eventId}": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "eventId": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "description": "User's favorite events"
+    }
+  }
+}

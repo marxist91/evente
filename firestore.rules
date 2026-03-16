@@ -1,0 +1,174 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Fields: uid, displayName, email, photoURL, role
+    //
+    // Collection: events
+    // Fields: id, title, description, date, location, city, category, imageUrl, authorUid, createdAt
+    //
+    // Collection: moments
+    // Fields: id, videoUrl, thumbnailUrl, caption, city, eventId, authorUid, authorName, createdAt
+    //
+    // Collection: users/{uid}/favorites
+    // Fields: eventId, createdAt
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "marxist1991@gmail.com" && request.auth.token.email_verified == true));
+    }
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*") || url.matches("^data:.*"));
+    }
+    function isValidOptionalUrl(url) {
+      return url == null || url == "" || isValidUrl(url);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidUser(data) {
+      return data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'role']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() < 100 &&
+             isValidEmail(data.email) &&
+             isValidOptionalUrl(data.get('photoURL', null)) &&
+             (data.role == 'user' || data.role == 'admin');
+    }
+
+    function isValidEvent(data) {
+      return data.keys().hasAll(['title', 'date', 'city', 'category', 'authorUid']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.city is string && data.city.size() > 0 &&
+             data.category in ['culture', 'party', 'concert', 'dance', 'other'] &&
+             isValidOptionalUrl(data.get('imageUrl', null)) &&
+             data.authorUid is string &&
+             (data.get('description', null) == null || data.get('description', null) is string) &&
+             (data.get('location', null) == null || data.get('location', null) is string) &&
+             (data.get('createdAt', null) == null || data.get('createdAt', null) is string) &&
+             (data.get('isRecurring', null) == null || data.get('isRecurring', null) is bool) &&
+             (data.get('recurringDay', null) == null || data.get('recurringDay', null) is number) &&
+             (!('favoriteCount' in data) || data.favoriteCount is number);
+    }
+
+    function isValidFavoriteCountUpdate(eventId) {
+      let oldFavCount = resource.data.get('favoriteCount', 0);
+      let newFavCount = request.resource.data.get('favoriteCount', 0);
+      
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['favoriteCount']) &&
+             math.abs(newFavCount - oldFavCount) == 1 &&
+             (
+               (newFavCount > oldFavCount &&
+                getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/favorites/$(eventId)) != null) ||
+               (newFavCount < oldFavCount &&
+                getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/favorites/$(eventId)) == null)
+             );
+    }
+
+    function isValidMoment(data) {
+      return data.keys().hasAll(['videoUrl', 'authorUid', 'city']) &&
+             isValidUrl(data.videoUrl) &&
+             data.authorUid == request.auth.uid &&
+             data.city is string && data.city.size() > 0 &&
+             (data.get('authorName', null) == null || data.get('authorName', null) is string) &&
+             (data.get('caption', null) == null || data.get('caption', null) is string) &&
+             (data.get('thumbnailUrl', null) == null || isValidOptionalUrl(data.get('thumbnailUrl', null))) &&
+             (data.get('eventId', null) == null || data.get('eventId', null) is string) &&
+             (data.get('createdAt', null) == null || data.get('createdAt', null) is string);
+    }
+
+    function isValidHotspot(data) {
+      return data.keys().hasAll(['name', 'description', 'type', 'location', 'city']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.description is string && data.description.size() > 0 &&
+             data.type in ['restaurant', 'bar', 'club', 'beach', 'monument', 'other'] &&
+             data.location is string && data.location.size() > 0 &&
+             data.city is string && data.city.size() > 0 &&
+             (data.get('imageUrl', null) == null || isValidOptionalUrl(data.get('imageUrl', null))) &&
+             (data.get('rating', null) == null || data.get('rating', null) is number) &&
+             (data.get('createdAt', null) == null || data.get('createdAt', null) is string);
+    }
+
+    function isValidComment(data) {
+      return data.keys().hasAll(['eventId', 'authorUid', 'text', 'createdAt']) &&
+             data.eventId is string &&
+             data.authorUid == request.auth.uid &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 1000 &&
+             data.createdAt is string &&
+             (data.get('authorName', null) == null || data.get('authorName', null) is string) &&
+             (data.get('authorPhoto', null) == null || isValidOptionalUrl(data.get('authorPhoto', null)));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{uid} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(uid) && isValidUser(request.resource.data) && request.resource.data.role == 'user';
+      allow update: if (isOwner(uid) && isValidUser(request.resource.data) && request.resource.data.role == resource.data.role) || isAdmin();
+
+      match /favorites/{eventId} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid) && request.resource.data.eventId == eventId;
+        allow delete: if isOwner(uid);
+      }
+
+      match /fcmTokens/{tokenId} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid) && request.resource.data.token is string;
+        allow delete: if isOwner(uid);
+      }
+    }
+
+    match /events/{eventId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidEvent(request.resource.data);
+      allow update: if (isAuthenticated() && resource.data.authorUid == request.auth.uid && isValidEvent(request.resource.data)) || isAdmin() || (isAuthenticated() && isValidFavoriteCountUpdate(eventId));
+      allow delete: if (isAuthenticated() && resource.data.authorUid == request.auth.uid) || isAdmin();
+    }
+
+    match /moments/{momentId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidMoment(request.resource.data);
+      allow update: if (isAuthenticated() && resource.data.authorUid == request.auth.uid && isValidMoment(request.resource.data)) || isAdmin();
+      allow delete: if (isAuthenticated() && resource.data.authorUid == request.auth.uid) || isAdmin();
+    }
+
+    match /hotspots/{hotspotId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidHotspot(request.resource.data);
+      allow update: if isAdmin();
+      allow delete: if isAuthenticated() || isAdmin();
+    }
+
+    match /comments/{commentId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidComment(request.resource.data);
+      allow update: if isAuthenticated() && resource.data.authorUid == request.auth.uid && isValidComment(request.resource.data);
+      allow delete: if isAuthenticated() && (resource.data.authorUid == request.auth.uid || isAdmin());
+    }
+  }
+}

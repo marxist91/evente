@@ -1,0 +1,9 @@
+{
+  "name": "Togo Events",
+  "description": "Une application événementielle multiplateforme pour découvrir les événements culturels, les soirées et les coins chauds au Togo. Partagez des moments en vidéo et trouvez les meilleures sorties par ville.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
