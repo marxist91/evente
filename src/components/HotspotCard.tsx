@@ -1,10 +1,12 @@
-import { MapPin, Star, Trash2 } from 'lucide-react';
+import { MapPin, Star, Trash2, ChevronRight, Tag } from 'lucide-react';
 import { Hotspot } from '../types';
 import { useState } from 'react';
 import { auth, db } from '../firebase';
 import { deleteDoc, doc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 import { ConfirmDialog } from './ConfirmDialog';
+import { cn } from '../lib/utils';
+import { Reviews } from './Reviews';
 
 interface HotspotCardProps {
   key?: string | number;
@@ -13,6 +15,7 @@ interface HotspotCardProps {
 
 export function HotspotCard({ hotspot }: HotspotCardProps) {
   const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   
   // For demo, we'll allow deletion if user is logged in
   const canDelete = !!auth.currentUser;
@@ -27,49 +30,63 @@ export function HotspotCard({ hotspot }: HotspotCardProps) {
   };
 
   return (
-    <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 mb-4 relative">
-      <div className="relative h-40">
+    <div className="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 mb-6 relative hover:shadow-md transition-all duration-300">
+      <div className="relative h-48 cursor-pointer" onClick={() => setShowDetails(!showDetails)}>
         <img
           src={hotspot.imageUrl || `https://picsum.photos/seed/${hotspot.id}/800/600`}
           alt={hotspot.name}
           className="w-full h-full object-cover"
           referrerPolicy="no-referrer"
         />
-        <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full flex items-center gap-2">
+        <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-md px-4 py-1.5 rounded-full flex items-center gap-2 shadow-sm">
           <Star size={12} className="text-amber-500 fill-amber-500" />
-          <span className="text-[10px] font-bold uppercase tracking-tight text-gray-700">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-700">
             {hotspot.type}
           </span>
         </div>
 
         {canDelete && (
           <button 
-            onClick={() => setIsConfirmDeleteOpen(true)}
-            className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/90 backdrop-blur-sm text-gray-400 hover:text-rose-600 flex items-center justify-center transition-all shadow-lg"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsConfirmDeleteOpen(true);
+            }}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/90 backdrop-blur-md text-slate-400 hover:text-rose-600 flex items-center justify-center transition-all shadow-lg"
           >
-            <Trash2 size={16} />
+            <Trash2 size={18} />
           </button>
         )}
 
         {hotspot.rating && (
-          <div className="absolute bottom-4 right-4 bg-black/50 backdrop-blur-sm px-2 py-1 rounded-lg flex items-center gap-1 text-white">
+          <div className="absolute bottom-4 right-4 bg-slate-900/80 backdrop-blur-md px-3 py-1 rounded-full flex items-center gap-1 text-white shadow-sm">
             <Star size={12} className="fill-amber-400 text-amber-400" />
             <span className="text-xs font-bold">{hotspot.rating}</span>
           </div>
         )}
       </div>
-      <div className="p-4">
-        <h3 className="text-lg font-bold text-gray-900 leading-tight mb-1">{hotspot.name}</h3>
+      <div className="p-5 cursor-pointer" onClick={() => setShowDetails(!showDetails)}>
+        <h3 className="text-lg font-black text-slate-900 leading-tight mb-2">{hotspot.name}</h3>
         <a 
           href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${hotspot.location}, ${hotspot.city}, Togo`)}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-2 text-gray-500 text-sm mb-2 hover:text-emerald-600 transition-colors group"
+          onClick={(e) => e.stopPropagation()}
+          className="flex items-center gap-2 text-slate-500 text-sm mb-3 hover:text-brand-primary transition-colors group"
         >
-          <MapPin size={14} className="text-emerald-600 group-hover:scale-110 transition-transform" />
-          <span className="underline decoration-emerald-500/30 underline-offset-2">{hotspot.location}, {hotspot.city}</span>
+          <MapPin size={14} className="text-brand-primary group-hover:scale-110 transition-transform" />
+          <span className="underline decoration-brand-primary/30 underline-offset-2">{hotspot.location}, {hotspot.city}</span>
         </a>
-        <p className="text-gray-600 text-sm line-clamp-2">{hotspot.description}</p>
+        <p className="text-slate-600 text-sm leading-relaxed line-clamp-2">{hotspot.description}</p>
+        
+        {showDetails && (
+          <div className="mt-6 pt-6 border-t border-slate-100">
+            <Reviews hotspotId={hotspot.id} />
+          </div>
+        )}
+
+        <div className="mt-6 flex items-center justify-center text-slate-300">
+          <ChevronRight size={20} className={cn("transition-transform duration-300", showDetails && "rotate-90")} />
+        </div>
       </div>
 
       <ConfirmDialog

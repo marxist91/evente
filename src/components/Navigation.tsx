@@ -17,18 +17,18 @@ export function Navigation({ activeTab, setActiveTab }: NavigationProps) {
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-6 py-3 flex justify-between items-center z-50">
+    <nav className="fixed bottom-6 left-6 right-6 bg-white/90 backdrop-blur-xl border border-slate-100 px-6 py-3 rounded-3xl flex justify-between items-center z-50 shadow-2xl shadow-slate-200/50">
       {tabs.map((tab) => (
         <button
           key={tab.id}
           onClick={() => setActiveTab(tab.id)}
           className={cn(
-            "flex flex-col items-center gap-1 transition-colors",
-            activeTab === tab.id ? "text-emerald-600" : "text-gray-400"
+            "flex flex-col items-center gap-1 transition-all duration-300",
+            activeTab === tab.id ? "text-brand-primary scale-110" : "text-slate-400 hover:text-slate-600"
           )}
         >
-          <tab.icon size={24} />
-          <span className="text-[10px] font-medium uppercase tracking-wider">{tab.label}</span>
+          <tab.icon size={22} strokeWidth={activeTab === tab.id ? 2.5 : 2} />
+          <span className="text-[9px] font-bold uppercase tracking-widest">{tab.label}</span>
         </button>
       ))}
     </nav>

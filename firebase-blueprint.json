@@ -62,6 +62,21 @@
         "rating": { "type": "number" },
         "createdAt": { "type": "string", "format": "date-time" }
       }
+    },
+    "Review": {
+      "title": "Review",
+      "description": "User reviews for hotspots",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "hotspotId": { "type": "string" },
+        "authorUid": { "type": "string" },
+        "authorName": { "type": "string" },
+        "rating": { "type": "number" },
+        "comment": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["hotspotId", "authorUid", "rating", "comment"]
     }
   },
   "firestore": {
@@ -91,6 +106,10 @@
     "/hotspots/{hotspotId}": {
       "schema": "Hotspot",
       "description": "Popular venues or locations"
+    },
+    "/hotspots/{hotspotId}/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "User reviews for hotspots"
     },
     "/users/{uid}/favorites/{eventId}": {
       "schema": {

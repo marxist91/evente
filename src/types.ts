@@ -11,6 +11,7 @@ export interface Event {
   title: string;
   description: string;
   date: string;
+  time?: string;
   location: string;
   city: string;
   category: 'culture' | 'party' | 'concert' | 'dance' | 'other';
@@ -31,6 +32,22 @@ export interface Moment {
   eventId?: string;
   authorUid: string;
   authorName: string;
+  createdAt: string;
+  locationName?: string;
+  time?: string;
+  coordinates?: {
+    lat: number;
+    lng: number;
+  };
+}
+
+export interface Review {
+  id: string;
+  hotspotId: string;
+  authorUid: string;
+  authorName: string;
+  rating: number;
+  comment: string;
   createdAt: string;
 }
 

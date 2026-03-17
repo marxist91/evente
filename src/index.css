@@ -1,4 +1,12 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", system-ui, sans-serif;
+  --color-brand-primary: #10b981; /* Emerald 500 */
+  --color-brand-secondary: #064e3b; /* Emerald 900 */
+  --color-bg-app: #f8fafc; /* Slate 50 */
+}
 
 @layer utilities {
   .no-scrollbar::-webkit-scrollbar {
@@ -11,6 +19,5 @@
 }
 
 body {
-  @apply antialiased text-gray-900;
-  font-family: 'Inter', sans-serif;
+  @apply antialiased text-slate-900 bg-slate-50 font-sans;
 }

@@ -121,6 +121,16 @@ service cloud.firestore {
              (data.get('authorPhoto', null) == null || isValidOptionalUrl(data.get('authorPhoto', null)));
     }
 
+    function isValidReview(data) {
+      return data.keys().hasAll(['hotspotId', 'authorUid', 'rating', 'comment', 'createdAt']) &&
+             data.hotspotId is string &&
+             data.authorUid == request.auth.uid &&
+             data.rating is number && data.rating >= 1 && data.rating <= 5 &&
+             data.comment is string && data.comment.size() > 0 && data.comment.size() < 1000 &&
+             data.createdAt is string &&
+             (data.get('authorName', null) == null || data.get('authorName', null) is string);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -162,6 +172,13 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isValidHotspot(request.resource.data);
       allow update: if isAdmin();
       allow delete: if isAuthenticated() || isAdmin();
+
+      match /reviews/{reviewId} {
+        allow read: if true;
+        allow create: if isAuthenticated() && isValidReview(request.resource.data) && request.resource.data.hotspotId == hotspotId;
+        allow update: if isAuthenticated() && resource.data.authorUid == request.auth.uid && isValidReview(request.resource.data) && request.resource.data.hotspotId == hotspotId;
+        allow delete: if isAuthenticated() && (resource.data.authorUid == request.auth.uid || isAdmin());
+      }
     }
 
     match /comments/{commentId} {

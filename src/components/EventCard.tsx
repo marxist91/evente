@@ -49,9 +49,28 @@ export function EventCard({ event, isFavorite, onToggleFavorite, allEvents }: Ev
 
   const dayNames = ['Dimanches', 'Lundis', 'Mardis', 'Mercredis', 'Jeudis', 'Vendredis', 'Samedis'];
 
-  const displayDate = event.isRecurring && event.recurringDay !== undefined
-    ? `Tous les ${dayNames[event.recurringDay]} à ${format(new Date(event.date), "HH:mm")}`
-    : format(new Date(event.date), "EEEE d MMMM 'à' HH:mm", { locale: fr });
+  let displayDate = '';
+  if (event.isRecurring && event.recurringDay !== undefined) {
+    displayDate = `Tous les ${dayNames[event.recurringDay]}`;
+    if (event.time) {
+      displayDate += ` à ${event.time}`;
+    } else if (event.date.includes('T')) {
+      const dateObj = new Date(event.date);
+      if (dateObj.getHours() !== 0 || dateObj.getMinutes() !== 0) {
+        displayDate += ` à ${format(dateObj, "HH:mm")}`;
+      }
+    }
+  } else {
+    displayDate = format(new Date(event.date), "EEEE d MMMM", { locale: fr });
+    if (event.time) {
+      displayDate += ` à ${event.time}`;
+    } else if (event.date.includes('T')) {
+      const dateObj = new Date(event.date);
+      if (dateObj.getHours() !== 0 || dateObj.getMinutes() !== 0) {
+        displayDate += ` à ${format(dateObj, "HH:mm")}`;
+      }
+    }
+  }
 
   // Fetch comments
   useEffect(() => {
@@ -115,7 +134,7 @@ export function EventCard({ event, isFavorite, onToggleFavorite, allEvents }: Ev
   return (
     <>
       <div 
-        className={cn("bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 mb-4 relative flex flex-col cursor-pointer transition-all duration-300", showDetails ? "shadow-md" : "")}
+        className={cn("bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 mb-6 relative flex flex-col cursor-pointer transition-all duration-300 hover:shadow-md", showDetails ? "shadow-md" : "")}
         onClick={() => setShowDetails(!showDetails)}
       >
         <div 
@@ -134,9 +153,9 @@ export function EventCard({ event, isFavorite, onToggleFavorite, allEvents }: Ev
             referrerPolicy="no-referrer"
           />
           <div className="absolute inset-0 bg-black/10 group-hover:bg-black/20 transition-colors" />
-          <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full flex items-center gap-2">
-            <Tag size={12} className="text-emerald-600" />
-            <span className="text-[10px] font-bold uppercase tracking-tight text-gray-700">
+          <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-md px-4 py-1.5 rounded-full flex items-center gap-2 shadow-sm">
+            <Tag size={12} className="text-brand-primary" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-700">
               {categoryLabels[event.category] || event.category}
             </span>
           </div>
@@ -193,25 +212,25 @@ export function EventCard({ event, isFavorite, onToggleFavorite, allEvents }: Ev
 
         <div className="p-4">
           <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2 text-gray-500 text-sm">
-              <Calendar size={14} className="text-emerald-600" />
-              <span className={event.isRecurring ? "font-bold text-emerald-700" : ""}>{displayDate}</span>
+            <div className="flex items-center gap-2 text-slate-500 text-sm">
+              <Calendar size={14} className="text-brand-primary" />
+              <span className={event.isRecurring ? "font-bold text-brand-secondary" : ""}>{displayDate}</span>
             </div>
             <a 
               href={googleMapsUrl}
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="flex items-center gap-2 text-gray-500 text-sm hover:text-emerald-600 transition-colors group"
+              className="flex items-center gap-2 text-slate-500 text-sm hover:text-brand-primary transition-colors group"
             >
-              <MapPin size={14} className="text-emerald-600 group-hover:scale-110 transition-transform" />
-              <span className="underline decoration-emerald-500/30 underline-offset-2">{event.location}, {event.city}</span>
+              <MapPin size={14} className="text-brand-primary group-hover:scale-110 transition-transform" />
+              <span className="underline decoration-brand-primary/30 underline-offset-2">{event.location}, {event.city}</span>
             </a>
           </div>
         
-        <p className={cn("mt-3 text-gray-600 text-sm transition-all", !showDetails && "line-clamp-2")}>{event.description}</p>
+        <p className={cn("mt-4 text-slate-600 text-sm transition-all leading-relaxed", !showDetails && "line-clamp-2")}>{event.description}</p>
         
-        <div className="mt-4 flex items-center justify-center text-gray-300">
+        <div className="mt-6 flex items-center justify-center text-slate-300">
           <ChevronRight size={20} className={cn("transition-transform duration-300", showDetails && "rotate-90")} />
         </div>
 

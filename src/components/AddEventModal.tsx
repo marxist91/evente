@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Upload, Calendar, MapPin, Tag, Type, AlignLeft } from 'lucide-react';
+import { X, Upload, Calendar, MapPin, Tag, Type, AlignLeft, Loader2 } from 'lucide-react';
 import { TogoCity, TOGO_CITIES, Event } from '../types';
 import { auth, db } from '../firebase';
 import { collection, addDoc } from 'firebase/firestore';
@@ -67,6 +67,10 @@ export function AddEventModal({ isOpen, onClose, selectedCity }: AddEventModalPr
         favoriteCount: 0,
       };
 
+      if (formData.time) {
+        eventData.time = formData.time;
+      }
+
       if (formData.isRecurring) {
         eventData.isRecurring = true;
         eventData.recurringDay = Number(formData.recurringDay);
@@ -110,11 +114,19 @@ export function AddEventModal({ isOpen, onClose, selectedCity }: AddEventModalPr
           <div className="space-y-2">
             <label className="text-xs font-bold uppercase tracking-wider text-gray-400">Image de l'événement</label>
             <div 
-              onClick={() => document.getElementById('event-image')?.click()}
-              className="relative aspect-video rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500/50 hover:bg-emerald-50/30 transition-all overflow-hidden"
+              onClick={() => !loading && document.getElementById('event-image')?.click()}
+              className={`relative aspect-video rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center ${!loading ? 'cursor-pointer hover:border-emerald-500/50 hover:bg-emerald-50/30' : 'cursor-not-allowed opacity-70'} transition-all overflow-hidden`}
             >
               {imagePreview ? (
-                <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                <>
+                  <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                  {loading && (
+                    <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center text-white backdrop-blur-sm">
+                      <Loader2 className="animate-spin mb-2" size={32} />
+                      <span className="text-sm font-bold">Téléchargement...</span>
+                    </div>
+                  )}
+                </>
               ) : (
                 <>
                   <Upload className="text-gray-300 mb-2" size={32} />
@@ -277,9 +289,14 @@ export function AddEventModal({ isOpen, onClose, selectedCity }: AddEventModalPr
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-emerald-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-emerald-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            {loading ? 'Publication en cours...' : 'Publier l\'événement'}
+            {loading ? (
+              <>
+                <Loader2 className="animate-spin" size={20} />
+                Publication en cours...
+              </>
+            ) : 'Publier l\'événement'}
           </button>
         </form>
       </div>

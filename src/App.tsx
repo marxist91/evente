@@ -73,6 +73,9 @@ function AppContent() {
   const [sortBy, setSortBy] = useState<'date' | 'relevance' | 'favorites'>('relevance');
   const [eventsLimit, setEventsLimit] = useState(5);
   const [hasMoreEvents, setHasMoreEvents] = useState(false);
+  const [isEventsLoading, setIsEventsLoading] = useState(true);
+  const [isMomentsLoading, setIsMomentsLoading] = useState(true);
+  const [isHotspotsLoading, setIsHotspotsLoading] = useState(true);
 
   const filteredEvents = useMemo(() => {
     let result = [...events];
@@ -132,6 +135,7 @@ function AppContent() {
 
   // Fetch Events
   useEffect(() => {
+    setIsEventsLoading(true);
     const path = 'events';
     const q = query(
       collection(db, path),
@@ -153,7 +157,9 @@ function AppContent() {
         setHasMoreEvents(false);
         setEvents(eventsData);
       }
+      setIsEventsLoading(false);
     }, (err) => {
+      setIsEventsLoading(false);
       handleFirestoreError(err, OperationType.GET, path);
     });
 
@@ -162,6 +168,7 @@ function AppContent() {
 
   // Fetch Moments
   useEffect(() => {
+    setIsMomentsLoading(true);
     const path = 'moments';
     const q = query(
       collection(db, path),
@@ -175,7 +182,9 @@ function AppContent() {
         ...doc.data()
       })) as Moment[];
       setMoments(momentsData);
+      setIsMomentsLoading(false);
     }, (err) => {
+      setIsMomentsLoading(false);
       handleFirestoreError(err, OperationType.GET, path);
     });
 
@@ -184,6 +193,7 @@ function AppContent() {
 
   // Fetch Hotspots
   useEffect(() => {
+    setIsHotspotsLoading(true);
     const path = 'hotspots';
     const q = query(
       collection(db, path),
@@ -197,7 +207,9 @@ function AppContent() {
         ...doc.data()
       })) as Hotspot[];
       setHotspots(hotspotsData);
+      setIsHotspotsLoading(false);
     }, (err) => {
+      setIsHotspotsLoading(false);
       handleFirestoreError(err, OperationType.GET, path);
     });
 
@@ -346,17 +358,17 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-24">
+    <div className="min-h-screen bg-slate-50 pb-24">
       {/* Header */}
-      <header className="bg-white px-6 pt-8 pb-4 sticky top-0 z-40 border-b border-gray-50">
+      <header className="bg-white px-6 pt-10 pb-6 sticky top-0 z-40 border-b border-slate-100 shadow-sm">
         <div className="flex justify-between items-center mb-6">
           <div>
-            <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-[0.2em]">Bienvenue au Togo</p>
-            <h1 className="text-2xl font-black text-gray-900 tracking-tight">Salut, {user.displayName?.split(' ')[0]} 👋</h1>
+            <p className="text-[10px] font-bold text-brand-primary uppercase tracking-[0.2em]">Bienvenue au Togo</p>
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Salut, {user.displayName?.split(' ')[0]} 👋</h1>
           </div>
           <button 
             onClick={() => auth.signOut()}
-            className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-400"
+            className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-200 transition-colors"
           >
             <LogOut size={18} />
           </button>
@@ -364,7 +376,7 @@ function AppContent() {
         <CitySelector selectedCity={selectedCity} setSelectedCity={setSelectedCity} />
       </header>
 
-      <main className="px-6 pt-6">
+      <main className="px-6 pt-8">
         <AnimatePresence mode="wait">
           {activeTab === 'home' && (
             <motion.div
@@ -372,13 +384,13 @@ function AppContent() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="space-y-8"
+              className="space-y-10"
             >
               {/* Search AI */}
-              <div className="bg-emerald-900 rounded-3xl p-6 text-white shadow-2xl shadow-emerald-100 relative overflow-hidden">
+              <div className="bg-slate-900 rounded-3xl p-8 text-white shadow-xl relative overflow-hidden">
                 <div className="relative z-10">
-                  <h2 className="text-xl font-bold mb-2">Besoin d'idées ?</h2>
-                  <p className="text-emerald-100 text-sm mb-4">Demandez à notre IA de trouver les coins chauds à {selectedCity}.</p>
+                  <h2 className="text-2xl font-bold mb-2">Besoin d'idées ?</h2>
+                  <p className="text-slate-400 text-sm mb-6">Demandez à notre IA de trouver les coins chauds à {selectedCity}.</p>
                   <div className="flex gap-2">
                     <input 
                       type="text" 
@@ -388,28 +400,28 @@ function AppContent() {
                         setSearchQuery(e.target.value);
                         if (aiResponse) setAiResponse(null);
                       }}
-                      className="flex-1 bg-white/10 border border-white/20 rounded-xl px-4 py-2 text-sm focus:outline-none focus:bg-white/20"
+                      className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:bg-white/10 text-white placeholder:text-slate-500"
                     />
                     <button 
                       onClick={handleSearch}
                       disabled={isAiLoading}
-                      className="bg-white text-emerald-900 p-2 rounded-xl"
+                      className="bg-brand-primary text-slate-900 p-3 rounded-2xl hover:bg-emerald-400 transition-colors"
                     >
                       {isAiLoading ? <Loader2 className="animate-spin" size={20} /> : <Search size={20} />}
                     </button>
                   </div>
                   {aiResponse && (
-                    <div className="mt-4 p-4 bg-white/10 rounded-2xl text-sm border border-white/10">
-                      <p className="leading-relaxed">{aiResponse.text}</p>
+                    <div className="mt-6 p-5 bg-white/5 rounded-2xl text-sm border border-white/10">
+                      <p className="leading-relaxed text-slate-200">{aiResponse.text}</p>
                       {aiResponse.grounding && (
-                        <div className="mt-2 pt-2 border-t border-white/10 flex gap-2 overflow-x-auto">
+                        <div className="mt-4 pt-4 border-t border-white/10 flex gap-2 overflow-x-auto">
                           {aiResponse.grounding.map((chunk: any, i: number) => (
                             chunk.maps && (
                               <a 
                                 key={i} 
                                 href={chunk.maps.uri} 
                                 target="_blank" 
-                                className="text-[10px] bg-emerald-500/30 px-2 py-1 rounded-full whitespace-nowrap"
+                                className="text-[10px] bg-brand-primary/20 text-brand-primary px-3 py-1.5 rounded-full whitespace-nowrap"
                               >
                                 📍 {chunk.maps.title || 'Voir sur Maps'}
                               </a>
@@ -420,17 +432,17 @@ function AppContent() {
                     </div>
                   )}
                 </div>
-                <Sparkles className="absolute -right-4 -bottom-4 text-white/5" size={120} />
+                <Sparkles className="absolute -right-6 -bottom-6 text-white/5" size={160} />
               </div>
 
               {/* Featured Events */}
               <section>
-                <div className="flex justify-between items-end mb-4">
-                  <h2 className="text-xl font-black text-gray-900 tracking-tight">
+                <div className="flex justify-between items-end mb-6">
+                  <h2 className="text-2xl font-black text-slate-900 tracking-tight">
                     {searchQuery ? 'Résultats de recherche' : 'À ne pas manquer'}
                   </h2>
                   {!searchQuery && (
-                    <button onClick={() => setActiveTab('events')} className="text-emerald-600 text-xs font-bold uppercase tracking-wider">Tout voir</button>
+                    <button onClick={() => setActiveTab('events')} className="text-brand-primary text-xs font-bold uppercase tracking-wider hover:text-brand-secondary transition-colors">Tout voir</button>
                   )}
                 </div>
                 {filteredEvents.length > 0 ? (
@@ -511,7 +523,13 @@ function AppContent() {
               </div>
 
               <div className="space-y-4">
-                {filteredEvents.length > 0 ? (
+                {isEventsLoading ? (
+                  <>
+                    <SkeletonEventCard />
+                    <SkeletonEventCard />
+                    <SkeletonEventCard />
+                  </>
+                ) : filteredEvents.length > 0 ? (
                   <>
                     {filteredEvents.map(event => (
                       <EventCard 
@@ -557,7 +575,14 @@ function AppContent() {
                 </button>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                {moments.map(moment => (
+                {isMomentsLoading ? (
+                  <>
+                    <SkeletonMomentCard />
+                    <SkeletonMomentCard />
+                    <SkeletonMomentCard />
+                    <SkeletonMomentCard />
+                  </>
+                ) : moments.map(moment => (
                   <MomentCard key={moment.id} moment={moment} />
                 ))}
               </div>
@@ -622,7 +647,13 @@ function AppContent() {
                   <Plus size={20} />
                 </button>
               </div>
-              {hotspots.length > 0 ? (
+              {isHotspotsLoading ? (
+                <div className="grid grid-cols-1 gap-4">
+                  <SkeletonHotspotCard />
+                  <SkeletonHotspotCard />
+                  <SkeletonHotspotCard />
+                </div>
+              ) : hotspots.length > 0 ? (
                 <div className="grid grid-cols-1 gap-4">
                   {hotspots.map(hotspot => (
                     <HotspotCard key={hotspot.id} hotspot={hotspot} />
@@ -770,6 +801,44 @@ function AppContent() {
         onClose={() => setIsAddMomentOpen(false)} 
         selectedCity={selectedCity}
       />
+    </div>
+  );
+}
+
+function SkeletonEventCard() {
+  return (
+    <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 mb-4 animate-pulse">
+      <div className="h-48 bg-gray-200"></div>
+      <div className="p-4">
+        <div className="flex flex-col gap-2 mb-3">
+          <div className="h-4 bg-gray-200 rounded w-1/3"></div>
+          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+        </div>
+        <div className="h-4 bg-gray-200 rounded w-full mb-2"></div>
+        <div className="h-4 bg-gray-200 rounded w-5/6"></div>
+        <div className="mt-4 h-8 bg-gray-100 rounded-xl w-full"></div>
+      </div>
+    </div>
+  );
+}
+
+function SkeletonMomentCard() {
+  return (
+    <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 animate-pulse h-48">
+      <div className="w-full h-full bg-gray-200"></div>
+    </div>
+  );
+}
+
+function SkeletonHotspotCard() {
+  return (
+    <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 mb-4 animate-pulse flex">
+      <div className="w-24 h-24 bg-gray-200 shrink-0"></div>
+      <div className="p-3 flex-1">
+        <div className="h-4 bg-gray-200 rounded w-1/2 mb-2"></div>
+        <div className="h-3 bg-gray-200 rounded w-full mb-1"></div>
+        <div className="h-3 bg-gray-200 rounded w-3/4"></div>
+      </div>
     </div>
   );
 }
