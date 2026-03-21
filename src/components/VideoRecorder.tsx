@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, Square, X, Pause, Play } from 'lucide-react';
+import { Camera, Square, X, Pause, Play, SwitchCamera } from 'lucide-react';
 
 interface VideoRecorderProps {
   onRecordingComplete: (file: File, previewUrl: string) => void;
@@ -14,7 +14,11 @@ export function VideoRecorder({ onRecordingComplete, onCancel }: VideoRecorderPr
   const [recordingTime, setRecordingTime] = useState(0);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const chunksRef = useRef<Blob[]>([]);
+  
+  const MAX_DURATION = 60; // 60 seconds max
+  const progressPercentage = Math.min((recordingTime / MAX_DURATION) * 100, 100);
 
   useEffect(() => {
     startCamera();
@@ -28,7 +32,17 @@ export function VideoRecorder({ onRecordingComplete, onCancel }: VideoRecorderPr
     let interval: NodeJS.Timeout;
     if (isRecording && !isPaused) {
       interval = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
+        setRecordingTime(prev => {
+          if (prev >= MAX_DURATION - 1) {
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+              mediaRecorderRef.current.stop();
+              setIsRecording(false);
+              setIsPaused(false);
+            }
+            return MAX_DURATION;
+          }
+          return prev + 1;
+        });
       }, 1000);
     }
     return () => clearInterval(interval);
@@ -40,11 +54,11 @@ export function VideoRecorder({ onRecordingComplete, onCancel }: VideoRecorderPr
     return `${m}:${s}`;
   };
 
-  const startCamera = async () => {
+  const startCamera = async (mode = facingMode) => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: { 
-          facingMode: 'environment',
+          facingMode: mode,
           width: { ideal: 480 },
           height: { ideal: 640 },
           frameRate: { ideal: 24 }
@@ -59,6 +73,40 @@ export function VideoRecorder({ onRecordingComplete, onCancel }: VideoRecorderPr
     } catch (err) {
       console.error("Error accessing camera:", err);
       setError("Impossible d'accéder à la caméra ou au microphone. Veuillez vérifier les permissions.");
+    }
+  };
+
+  const handleSwitchCamera = async () => {
+    const newFacingMode = facingMode === 'environment' ? 'user' : 'environment';
+    setFacingMode(newFacingMode);
+
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: { 
+          facingMode: newFacingMode,
+          width: { ideal: 480 },
+          height: { ideal: 640 },
+          frameRate: { ideal: 24 }
+        }
+      });
+
+      if (stream) {
+        const oldVideoTrack = stream.getVideoTracks()[0];
+        const newVideoTrack = newStream.getVideoTracks()[0];
+        
+        stream.removeTrack(oldVideoTrack);
+        stream.addTrack(newVideoTrack);
+        oldVideoTrack.stop();
+        
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(e => console.error(e));
+        }
+      } else {
+        startCamera(newFacingMode);
+      }
+    } catch (err) {
+      console.error("Error switching camera:", err);
     }
   };
 
@@ -154,32 +202,45 @@ export function VideoRecorder({ onRecordingComplete, onCancel }: VideoRecorderPr
 
   return (
     <div className="relative aspect-[9/16] max-h-[400px] mx-auto rounded-2xl bg-black overflow-hidden flex flex-col items-center justify-center">
+      {/* Progress Bar */}
+      {isRecording && (
+        <div className="absolute top-0 left-0 right-0 h-1.5 bg-black/30 z-50">
+          <div 
+            className="h-full bg-rose-500 transition-all duration-1000 ease-linear"
+            style={{ width: `${progressPercentage}%` }}
+          />
+        </div>
+      )}
+
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted
-        className="w-full h-full object-cover"
+        className={`w-full h-full object-cover ${facingMode === 'user' ? 'scale-x-[-1]' : ''}`}
       />
       
-      <div className="absolute top-4 right-4">
+      <div className="absolute top-4 right-4 flex flex-col gap-3 z-40">
         <button onClick={onCancel} className="p-2 bg-black/50 text-white rounded-full backdrop-blur-md hover:bg-black/70 transition-colors">
           <X size={20} />
         </button>
+        <button onClick={handleSwitchCamera} className="p-2 bg-black/50 text-white rounded-full backdrop-blur-md hover:bg-black/70 transition-colors">
+          <SwitchCamera size={20} />
+        </button>
       </div>
 
-      <div className="absolute top-4 left-4 flex items-center gap-2">
+      <div className="absolute top-4 left-4 flex items-center gap-2 z-40">
         {isRecording && (
           <>
             <div className={`w-3 h-3 rounded-full bg-rose-500 ${!isPaused ? 'animate-pulse' : ''}`} />
             <span className="text-white text-sm font-bold font-mono bg-black/50 px-2 py-1 rounded-md backdrop-blur-md">
-              {formatTime(recordingTime)}
+              {formatTime(recordingTime)} / {formatTime(MAX_DURATION)}
             </span>
           </>
         )}
       </div>
 
-      <div className="absolute bottom-6 left-0 right-0 flex justify-center items-center gap-6">
+      <div className="absolute bottom-6 left-0 right-0 flex justify-center items-center gap-6 z-40">
         {!isRecording ? (
           <button 
             onClick={startRecording}

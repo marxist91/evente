@@ -32,7 +32,10 @@ import {
   Image as ImageIcon,
   Loader2,
   LogOut,
-  Map as MapIcon
+  Map as MapIcon,
+  MapPin,
+  CalendarX,
+  SearchX
 } from 'lucide-react';
 
 import { Navigation } from './components/Navigation';
@@ -71,7 +74,7 @@ function AppContent() {
   const [isAddMomentOpen, setIsAddMomentOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'date' | 'relevance' | 'favorites'>('relevance');
-  const [eventsLimit, setEventsLimit] = useState(5);
+  const [eventsLimit, setEventsLimit] = useState(20);
   const [hasMoreEvents, setHasMoreEvents] = useState(false);
   const [isEventsLoading, setIsEventsLoading] = useState(true);
   const [isMomentsLoading, setIsMomentsLoading] = useState(true);
@@ -97,7 +100,14 @@ function AppContent() {
 
     // Sorting
     if (sortBy === 'date') {
-      result.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      result.sort((a, b) => {
+        const timeA = new Date(a.date).getTime();
+        const timeB = new Date(b.date).getTime();
+        if (isNaN(timeA) && isNaN(timeB)) return 0;
+        if (isNaN(timeA)) return 1;
+        if (isNaN(timeB)) return -1;
+        return timeA - timeB;
+      });
     } else if (sortBy === 'favorites') {
       result.sort((a, b) => (b.favoriteCount || 0) - (a.favoriteCount || 0));
     }
@@ -140,16 +150,27 @@ function AppContent() {
     const q = query(
       collection(db, path),
       where('city', '==', selectedCity),
-      orderBy('date', 'asc'),
-      limit(eventsLimit + 1)
+      orderBy('date', 'asc')
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const eventsData = snapshot.docs.map(doc => ({
+      let eventsData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as Event[];
       
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      
+      eventsData = eventsData.filter(e => {
+        const eventDate = new Date(e.date);
+        if (isNaN(eventDate.getTime())) return true;
+        
+        const eventDay = new Date(eventDate);
+        eventDay.setHours(0, 0, 0, 0);
+        return eventDay.getTime() >= now.getTime();
+      });
+
       if (eventsData.length > eventsLimit) {
         setHasMoreEvents(true);
         setEvents(eventsData.slice(0, eventsLimit));
@@ -412,23 +433,7 @@ function AppContent() {
                   </div>
                   {aiResponse && (
                     <div className="mt-6 p-5 bg-white/5 rounded-2xl text-sm border border-white/10">
-                      <p className="leading-relaxed text-slate-200">{aiResponse.text}</p>
-                      {aiResponse.grounding && (
-                        <div className="mt-4 pt-4 border-t border-white/10 flex gap-2 overflow-x-auto">
-                          {aiResponse.grounding.map((chunk: any, i: number) => (
-                            chunk.maps && (
-                              <a 
-                                key={i} 
-                                href={chunk.maps.uri} 
-                                target="_blank" 
-                                className="text-[10px] bg-brand-primary/20 text-brand-primary px-3 py-1.5 rounded-full whitespace-nowrap"
-                              >
-                                📍 {chunk.maps.title || 'Voir sur Maps'}
-                              </a>
-                            )
-                          ))}
-                        </div>
-                      )}
+                      <p className="leading-relaxed text-slate-200 whitespace-pre-wrap">{aiResponse.text}</p>
                     </div>
                   )}
                 </div>
@@ -445,19 +450,105 @@ function AppContent() {
                     <button onClick={() => setActiveTab('events')} className="text-brand-primary text-xs font-bold uppercase tracking-wider hover:text-brand-secondary transition-colors">Tout voir</button>
                   )}
                 </div>
-                {filteredEvents.length > 0 ? (
-                  filteredEvents.slice(0, searchQuery ? 10 : 3).map(event => (
-                    <EventCard 
-                      key={event.id} 
-                      event={event} 
-                      isFavorite={favorites.includes(event.id)}
-                      onToggleFavorite={handleToggleFavorite}
-                    />
-                  ))
-                ) : (
-                  <div className="bg-white rounded-2xl p-8 text-center border border-dashed border-gray-200">
-                    <p className="text-gray-400 text-sm">Aucun événement trouvé pour "{searchQuery}".</p>
+
+                {/* AI Recommended Places */}
+                {searchQuery && (aiResponse?.places?.length > 0 || aiResponse?.grounding?.some((c: any) => c.maps)) && (
+                  <div className="mb-8">
+                    <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                      <Sparkles size={18} className="text-brand-primary" />
+                      Lieux recommandés par l'IA
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {aiResponse.places?.length > 0 ? (
+                        aiResponse.places.map((place: any, i: number) => (
+                          <a 
+                            key={i}
+                            href={place.mapsUrl || '#'}
+                            target={place.mapsUrl ? "_blank" : "_self"}
+                            rel="noopener noreferrer"
+                            className="group block bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 hover:shadow-md transition-all duration-300"
+                          >
+                            <div className="h-48 relative overflow-hidden bg-slate-100">
+                              <img 
+                                src={place.imageUrl || `https://picsum.photos/seed/${encodeURIComponent(place.name)}/800/400`} 
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = `https://picsum.photos/seed/${encodeURIComponent(place.name)}/800/400`;
+                                }}
+                                alt={place.name}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                referrerPolicy="no-referrer"
+                              />
+                              <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/40 to-transparent"></div>
+                              <div className="absolute bottom-4 left-4 right-4 text-white">
+                                <h4 className="font-black text-xl leading-tight mb-1">{place.name}</h4>
+                                {place.mapsUrl && (
+                                  <div className="flex items-center gap-1 text-xs font-medium text-brand-primary mb-2">
+                                    <MapPin size={12} />
+                                    <span>Voir sur Google Maps</span>
+                                  </div>
+                                )}
+                                <p className="text-sm text-slate-200 line-clamp-2">{place.description}</p>
+                              </div>
+                            </div>
+                          </a>
+                        ))
+                      ) : (
+                        aiResponse.grounding?.filter((c: any) => c.maps).map((chunk: any, i: number) => (
+                          <a 
+                            key={i}
+                            href={chunk.maps.uri}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="group block bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 hover:shadow-md transition-all duration-300"
+                          >
+                            <div className="h-40 relative overflow-hidden bg-slate-100">
+                              <img 
+                                src={`https://picsum.photos/seed/${encodeURIComponent(chunk.maps.title)}/800/400`} 
+                                alt={chunk.maps.title}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                referrerPolicy="no-referrer"
+                              />
+                              <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-slate-900/20 to-transparent"></div>
+                              <div className="absolute bottom-4 left-4 right-4 text-white">
+                                <h4 className="font-black text-lg leading-tight mb-1">{chunk.maps.title}</h4>
+                                <div className="flex items-center gap-1 text-xs font-medium text-brand-primary">
+                                  <MapPin size={12} />
+                                  <span>Voir sur Google Maps</span>
+                                </div>
+                              </div>
+                            </div>
+                          </a>
+                        ))
+                      )}
+                    </div>
                   </div>
+                )}
+
+                {/* Filtered Events */}
+                {filteredEvents.length > 0 ? (
+                  <>
+                    {searchQuery && <h3 className="text-lg font-bold text-slate-800 mb-4">Événements correspondants</h3>}
+                    {filteredEvents.slice(0, searchQuery ? 10 : 3).map(event => (
+                      <EventCard 
+                        key={event.id} 
+                        event={event} 
+                        isFavorite={favorites.includes(event.id)}
+                        onToggleFavorite={handleToggleFavorite}
+                      />
+                    ))}
+                  </>
+                ) : (
+                  (!aiResponse || (!aiResponse.places?.length && !aiResponse.grounding?.some((c: any) => c.maps))) && (
+                    <div className="bg-white rounded-3xl p-12 text-center border border-dashed border-slate-200 flex flex-col items-center justify-center min-h-[300px]">
+                      <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6">
+                        <SearchX size={40} className="text-slate-300" />
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-800 mb-2">Aucun résultat</h3>
+                      <p className="text-slate-500 max-w-md mx-auto">
+                        Nous n'avons trouvé aucun événement pour "{searchQuery}". Essayez avec d'autres mots-clés.
+                      </p>
+                    </div>
+                  )
                 )}
               </section>
             </motion.div>
@@ -550,8 +641,14 @@ function AppContent() {
                     )}
                   </>
                 ) : (
-                  <div className="bg-white rounded-2xl p-12 text-center border border-dashed border-gray-200">
-                    <p className="text-gray-400 text-sm">Aucun événement ne correspond à vos critères.</p>
+                  <div className="bg-white rounded-3xl p-12 text-center border border-dashed border-slate-200 flex flex-col items-center justify-center min-h-[300px]">
+                    <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6">
+                      <CalendarX size={40} className="text-slate-300" />
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-800 mb-2">Aucun événement trouvé</h3>
+                    <p className="text-slate-500 max-w-md mx-auto">
+                      Nous n'avons trouvé aucun événement correspondant à vos critères. Essayez de modifier vos filtres ou de chercher dans une autre ville.
+                    </p>
                   </div>
                 )}
               </div>

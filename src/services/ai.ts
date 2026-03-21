@@ -32,15 +32,46 @@ export const generateEventPoster = async (prompt: string) => {
 export const getEventsInfo = async (city: string, query: string) => {
   const ai = getAI();
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: `Trouve des informations sur les événements culturels ou les coins chauds à ${city} au Togo. Question: ${query}`,
+    model: "gemini-3.1-pro-preview",
+    contents: `Tu es un guide local expert de ${city} au Togo. L'utilisateur demande : "${query}".
+    
+    Tu dois chercher sur le web de manière EXHAUSTIVE pour trouver le maximum de lieux ou événements actuels qui correspondent.
+    Trouve au moins 8 à 10 lieux ou événements différents si possible. Ne te limite pas à 2 ou 3.
+    Pour chaque lieu, tu DOIS trouver une VRAIE image (affiche, photo du lieu, logo) en cherchant sur leurs réseaux sociaux, sites web ou annuaires.
+    
+    Réponds UNIQUEMENT avec un bloc de code JSON valide, sans aucun texte autour.
+    Format attendu :
+    {
+      "message": "Ton message d'introduction amical et naturel",
+      "places": [
+        {
+          "name": "Nom du lieu ou de l'événement",
+          "description": "Description de ce qu'on y trouve et pourquoi c'est bien",
+          "imageUrl": "URL directe vers une vraie image (ex: https://.../image.jpg). Cherche bien une vraie image !",
+          "mapsUrl": "URL Google Maps du lieu (si disponible)"
+        }
+      ]
+    }`,
     config: {
-      tools: [{ googleMaps: {} }],
+      tools: [{ googleSearch: {} }],
     },
   });
 
+  const text = response.text || "";
+  let parsedData = { message: text, places: [] };
+  
+  try {
+    const match = text.match(/```(?:json)?\n([\s\S]*?)\n```/);
+    const jsonStr = match ? match[1] : text;
+    parsedData = JSON.parse(jsonStr);
+  } catch (e) {
+    console.error("Failed to parse AI JSON:", text);
+    parsedData.message = text;
+  }
+
   return {
-    text: response.text,
+    text: parsedData.message,
+    places: parsedData.places || [],
     grounding: response.candidates?.[0]?.groundingMetadata?.groundingChunks
   };
 };

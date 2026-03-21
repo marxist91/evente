@@ -54,10 +54,13 @@ export function AddEventModal({ isOpen, onClose, selectedCity }: AddEventModalPr
 
     setLoading(true);
     try {
+      const dateString = formData.time ? `${formData.date}T${formData.time}` : formData.date;
+      const parsedDate = new Date(dateString);
+      
       const eventData: any = {
         title: formData.title,
         description: formData.description,
-        date: new Date(`${formData.date}T${formData.time}`).toISOString(),
+        date: isNaN(parsedDate.getTime()) ? formData.date : parsedDate.toISOString(),
         location: formData.location,
         city: formData.city,
         category: formData.category,
@@ -185,7 +188,8 @@ export function AddEventModal({ isOpen, onClose, selectedCity }: AddEventModalPr
                 value={formData.date}
                 onChange={e => {
                   const newDate = e.target.value;
-                  const dayOfWeek = new Date(newDate).getDay();
+                  const parsedDate = new Date(newDate);
+                  const dayOfWeek = isNaN(parsedDate.getTime()) ? undefined : parsedDate.getDay();
                   setFormData({ ...formData, date: newDate, recurringDay: dayOfWeek });
                 }}
                 className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500/20 transition-all"

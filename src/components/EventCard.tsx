@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Calendar, MapPin, Tag, Heart, Share2, Facebook, Twitter, MessageCircle, ChevronRight, Info, Send, Trash2, User as UserIcon, X } from 'lucide-react';
+import { Calendar, MapPin, Tag, Heart, Share2, Facebook, Twitter, MessageCircle, ChevronRight, Info, Send, Trash2, User as UserIcon, X, CalendarPlus } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Event, Comment } from '../types';
@@ -50,26 +50,34 @@ export function EventCard({ event, isFavorite, onToggleFavorite, allEvents }: Ev
   const dayNames = ['Dimanches', 'Lundis', 'Mardis', 'Mercredis', 'Jeudis', 'Vendredis', 'Samedis'];
 
   let displayDate = '';
-  if (event.isRecurring && event.recurringDay !== undefined) {
-    displayDate = `Tous les ${dayNames[event.recurringDay]}`;
-    if (event.time) {
-      displayDate += ` à ${event.time}`;
-    } else if (event.date.includes('T')) {
+  try {
+    if (event.isRecurring && event.recurringDay !== undefined) {
+      displayDate = `Tous les ${dayNames[event.recurringDay]}`;
+      if (event.time) {
+        displayDate += ` à ${event.time}`;
+      } else if (event.date && event.date.includes('T')) {
+        const dateObj = new Date(event.date);
+        if (!isNaN(dateObj.getTime()) && (dateObj.getHours() !== 0 || dateObj.getMinutes() !== 0)) {
+          displayDate += ` à ${format(dateObj, "HH:mm")}`;
+        }
+      }
+    } else {
       const dateObj = new Date(event.date);
-      if (dateObj.getHours() !== 0 || dateObj.getMinutes() !== 0) {
-        displayDate += ` à ${format(dateObj, "HH:mm")}`;
+      if (!isNaN(dateObj.getTime())) {
+        displayDate = format(dateObj, "EEEE d MMMM", { locale: fr });
+        if (event.time) {
+          displayDate += ` à ${event.time}`;
+        } else if (event.date && event.date.includes('T')) {
+          if (dateObj.getHours() !== 0 || dateObj.getMinutes() !== 0) {
+            displayDate += ` à ${format(dateObj, "HH:mm")}`;
+          }
+        }
+      } else {
+        displayDate = 'Date non spécifiée';
       }
     }
-  } else {
-    displayDate = format(new Date(event.date), "EEEE d MMMM", { locale: fr });
-    if (event.time) {
-      displayDate += ` à ${event.time}`;
-    } else if (event.date.includes('T')) {
-      const dateObj = new Date(event.date);
-      if (dateObj.getHours() !== 0 || dateObj.getMinutes() !== 0) {
-        displayDate += ` à ${format(dateObj, "HH:mm")}`;
-      }
-    }
+  } catch (e) {
+    displayDate = 'Date invalide';
   }
 
   // Fetch comments
@@ -122,6 +130,53 @@ export function EventCard({ event, isFavorite, onToggleFavorite, allEvents }: Ev
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `events/${event.id}`);
     }
+  };
+
+  const handleAddToCalendar = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    const dateObj = new Date(event.date);
+    if (isNaN(dateObj.getTime())) {
+      alert("La date de cet événement n'est pas valide.");
+      return;
+    }
+
+    if (event.time) {
+      const [hours, minutes] = event.time.split(':');
+      dateObj.setHours(parseInt(hours, 10), parseInt(minutes, 10));
+    }
+
+    const formatDate = (date: Date) => {
+      return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    };
+
+    const startDate = formatDate(dateObj);
+    const endDateObj = new Date(dateObj.getTime() + 2 * 60 * 60 * 1000); // Assume 2 hours duration
+    const endDate = formatDate(endDateObj);
+
+    const icsContent = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Togo Vibes//FR',
+      'BEGIN:VEVENT',
+      `DTSTART:${startDate}`,
+      `DTEND:${endDate}`,
+      `SUMMARY:${event.title}`,
+      `DESCRIPTION:${event.description || ''}`,
+      `LOCATION:${event.location}, ${event.city}`,
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\n');
+
+    const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${event.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.ics`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
   };
 
   const similarEvents = useMemo(() => {
@@ -212,9 +267,19 @@ export function EventCard({ event, isFavorite, onToggleFavorite, allEvents }: Ev
 
         <div className="p-4">
           <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2 text-slate-500 text-sm">
-              <Calendar size={14} className="text-brand-primary" />
-              <span className={event.isRecurring ? "font-bold text-brand-secondary" : ""}>{displayDate}</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-slate-500 text-sm">
+                <Calendar size={14} className="text-brand-primary" />
+                <span className={event.isRecurring ? "font-bold text-brand-secondary" : ""}>{displayDate}</span>
+              </div>
+              <button 
+                onClick={handleAddToCalendar}
+                className="flex items-center gap-1.5 text-xs font-medium text-brand-primary bg-brand-primary/10 hover:bg-brand-primary/20 px-2.5 py-1.5 rounded-lg transition-colors"
+                title="Ajouter au calendrier"
+              >
+                <CalendarPlus size={14} />
+                <span className="hidden sm:inline">Ajouter</span>
+              </button>
             </div>
             <a 
               href={googleMapsUrl}
@@ -230,7 +295,24 @@ export function EventCard({ event, isFavorite, onToggleFavorite, allEvents }: Ev
         
         <p className={cn("mt-4 text-slate-600 text-sm transition-all leading-relaxed", !showDetails && "line-clamp-2")}>{event.description}</p>
         
-        <div className="mt-6 flex items-center justify-center text-slate-300">
+        <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 flex items-center gap-2">
+            <Share2 size={12} /> Partager
+          </span>
+          <div className="flex gap-3">
+            <a href={shareLinks.facebook} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center hover:bg-blue-600 hover:text-white transition-colors">
+              <Facebook size={14} />
+            </a>
+            <a href={shareLinks.twitter} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="w-8 h-8 rounded-full bg-sky-50 text-sky-500 flex items-center justify-center hover:bg-sky-500 hover:text-white transition-colors">
+              <Twitter size={14} />
+            </a>
+            <a href={shareLinks.whatsapp} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center hover:bg-emerald-600 hover:text-white transition-colors">
+              <MessageCircle size={14} />
+            </a>
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center justify-center text-slate-300">
           <ChevronRight size={20} className={cn("transition-transform duration-300", showDetails && "rotate-90")} />
         </div>
 
@@ -287,7 +369,14 @@ export function EventCard({ event, isFavorite, onToggleFavorite, allEvents }: Ev
                             <div className="flex justify-between items-center mb-1">
                               <span className="text-xs font-bold text-gray-900">{comment.authorName}</span>
                               <span className="text-[10px] text-gray-400">
-                                {format(new Date(comment.createdAt), 'HH:mm', { locale: fr })}
+                                {(() => {
+                                  try {
+                                    const d = new Date(comment.createdAt);
+                                    return isNaN(d.getTime()) ? '' : format(d, 'HH:mm', { locale: fr });
+                                  } catch (e) {
+                                    return '';
+                                  }
+                                })()}
                               </span>
                             </div>
                             <p className="text-xs text-gray-600 leading-relaxed">{comment.text}</p>
@@ -327,23 +416,6 @@ export function EventCard({ event, isFavorite, onToggleFavorite, allEvents }: Ev
                   ) : (
                     <p className="text-xs text-gray-400 italic">Aucun événement similaire trouvé pour le moment.</p>
                   )}
-                </div>
-
-                <div className="pt-4 border-t border-gray-50 flex items-center justify-between">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 flex items-center gap-2">
-                    <Share2 size={12} /> Partager
-                  </span>
-                  <div className="flex gap-3">
-                    <a href={shareLinks.facebook} target="_blank" rel="noopener noreferrer" className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center hover:bg-blue-600 hover:text-white transition-colors">
-                      <Facebook size={14} />
-                    </a>
-                    <a href={shareLinks.twitter} target="_blank" rel="noopener noreferrer" className="w-8 h-8 rounded-full bg-sky-50 text-sky-500 flex items-center justify-center hover:bg-sky-500 hover:text-white transition-colors">
-                      <Twitter size={14} />
-                    </a>
-                    <a href={shareLinks.whatsapp} target="_blank" rel="noopener noreferrer" className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center hover:bg-emerald-600 hover:text-white transition-colors">
-                      <MessageCircle size={14} />
-                    </a>
-                  </div>
                 </div>
               </div>
             </motion.div>

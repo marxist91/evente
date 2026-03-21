@@ -39,6 +39,9 @@ export interface Moment {
     lat: number;
     lng: number;
   };
+  likesCount?: number;
+  likedBy?: string[];
+  commentsCount?: number;
 }
 
 export interface Review {
