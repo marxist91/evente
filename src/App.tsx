@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { auth, db, requestNotificationPermission } from './firebase';
 import Fuse from 'fuse.js';
 import { 
@@ -35,15 +35,18 @@ import {
   Map as MapIcon,
   MapPin,
   CalendarX,
-  SearchX
+  SearchX,
+  Bell,
+  BellOff,
+  X
 } from 'lucide-react';
 
 import { Navigation } from './components/Navigation';
 import { CitySelector } from './components/CitySelector';
 import { EventCard } from './components/EventCard';
 import { MomentCard } from './components/MomentCard';
-import { TogoCity, Event, Moment, Hotspot } from './types';
-import { generateEventPoster, getEventsInfo, generateVeoVideo } from './services/ai';
+import { TogoCity, Event, Moment, Hotspot, UserProfile } from './types';
+import { generateEventPoster, getEventsInfo, generateVeoVideo, filterEventsWithAI } from './services/ai';
 import { cn } from './lib/utils';
 import { handleFirestoreError, OperationType } from './lib/firestore-errors';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -69,16 +72,75 @@ function AppContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [aiResponse, setAiResponse] = useState<any>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [isAiFilterActive, setIsAiFilterActive] = useState(false);
+  const [isAiFiltering, setIsAiFiltering] = useState(false);
+  const [aiFilteredEvents, setAiFilteredEvents] = useState<{id: string, reason: string}[] | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [isAddEventOpen, setIsAddEventOpen] = useState(false);
   const [isAddMomentOpen, setIsAddMomentOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'date' | 'relevance' | 'favorites'>('relevance');
+  const [hotspotSortBy, setHotspotSortBy] = useState<'rating' | 'date' | 'popularity'>('date');
   const [eventsLimit, setEventsLimit] = useState(20);
   const [hasMoreEvents, setHasMoreEvents] = useState(false);
+  const [momentsLimit, setMomentsLimit] = useState(10);
+  const [hasMoreMoments, setHasMoreMoments] = useState(false);
   const [isEventsLoading, setIsEventsLoading] = useState(true);
   const [isMomentsLoading, setIsMomentsLoading] = useState(true);
   const [isHotspotsLoading, setIsHotspotsLoading] = useState(true);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const userProfileRef = useRef<UserProfile | null>(null);
+  const [toastNotification, setToastNotification] = useState<{title: string, message: string} | null>(null);
+
+  useEffect(() => {
+    userProfileRef.current = userProfile;
+  }, [userProfile]);
+
+  const handleToggleNotifications = async () => {
+    if (!user) return;
+    const userRef = doc(db, 'users', user.uid);
+    
+    const isCurrentlyEnabledForThisCity = userProfile?.notificationsEnabled && userProfile?.notificationCity === selectedCity;
+    const newStatus = !isCurrentlyEnabledForThisCity;
+    const newCity = newStatus ? selectedCity : null;
+
+    try {
+      await setDoc(userRef, {
+        notificationsEnabled: newStatus,
+        notificationCity: newCity
+      }, { merge: true });
+
+      if (newStatus && 'Notification' in window && Notification.permission !== 'granted') {
+        await Notification.requestPermission();
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
+    }
+  };
+
+  const handleViewEvent = async (event: Event) => {
+    if (!user) return;
+    
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      const currentHistory = userProfile?.history || [];
+      const currentPreferences = userProfile?.preferences || [];
+      
+      // Add to history (keep last 20)
+      const newHistory = [event.id, ...currentHistory.filter(id => id !== event.id)].slice(0, 20);
+      
+      // Update preferences (categories of viewed events)
+      // We'll keep a simple list of unique categories from the history
+      const newPreferences = Array.from(new Set([event.category, ...currentPreferences])).slice(0, 5);
+      
+      await setDoc(userRef, {
+        history: newHistory,
+        preferences: newPreferences
+      }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
+    }
+  };
 
   const filteredEvents = useMemo(() => {
     let result = [...events];
@@ -115,11 +177,77 @@ function AppContent() {
     return result;
   }, [events, searchQuery, selectedCategory, sortBy]);
 
+  const sortedHotspots = useMemo(() => {
+    let result = [...hotspots];
+    
+    if (hotspotSortBy === 'rating') {
+      result.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    } else if (hotspotSortBy === 'popularity') {
+      // For popularity, we can use rating as a proxy if no reviewsCount exists
+      // Or we can sort by name as a fallback if rating is the same
+      result.sort((a, b) => (b.rating || 0) - (a.rating || 0) || a.name.localeCompare(b.name));
+    } else if (hotspotSortBy === 'date') {
+      result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+    
+    return result;
+  }, [hotspots, hotspotSortBy]);
+
+  const recommendedEvents = useMemo(() => {
+    let result = [...events];
+    
+    // Filter by city is already done by the events listener, but just to be sure
+    result = result.filter(e => e.city === selectedCity);
+    
+    const preferences = userProfile?.preferences || [];
+    const history = userProfile?.history || [];
+    
+    if (preferences.length > 0) {
+      // Score events based on preferences and history
+      result.sort((a, b) => {
+        let scoreA = 0;
+        let scoreB = 0;
+        
+        if (preferences.includes(a.category)) scoreA += 10;
+        if (preferences.includes(b.category)) scoreB += 10;
+        
+        // Penalize events already in history so we show new ones
+        if (history.includes(a.id)) scoreA -= 5;
+        if (history.includes(b.id)) scoreB -= 5;
+        
+        // If scores are equal, sort by date
+        if (scoreA === scoreB) {
+          const timeA = new Date(a.date).getTime();
+          const timeB = new Date(b.date).getTime();
+          if (isNaN(timeA) && isNaN(timeB)) return 0;
+          if (isNaN(timeA)) return 1;
+          if (isNaN(timeB)) return -1;
+          return timeA - timeB;
+        }
+        
+        return scoreB - scoreA; // Descending score
+      });
+    } else {
+      // If no preferences, just sort by date
+      result.sort((a, b) => {
+        const timeA = new Date(a.date).getTime();
+        const timeB = new Date(b.date).getTime();
+        if (isNaN(timeA) && isNaN(timeB)) return 0;
+        if (isNaN(timeA)) return 1;
+        if (isNaN(timeB)) return -1;
+        return timeA - timeB;
+      });
+    }
+    
+    return result;
+  }, [events, userProfile, selectedCity]);
+
   // Sync User Profile
   useEffect(() => {
     if (user) {
+      const userRef = doc(db, 'users', user.uid);
+      
       const syncProfile = async () => {
-        const userRef = doc(db, 'users', user.uid);
         try {
           await setDoc(userRef, {
             uid: user.uid,
@@ -133,6 +261,16 @@ function AppContent() {
         }
       };
       syncProfile();
+
+      const unsubscribe = onSnapshot(userRef, (docSnap) => {
+        if (docSnap.exists()) {
+          setUserProfile(docSnap.data() as UserProfile);
+        }
+      });
+
+      return () => unsubscribe();
+    } else {
+      setUserProfile(null);
     }
   }, [user]);
 
@@ -144,8 +282,11 @@ function AppContent() {
   }, [user, selectedCity]);
 
   // Fetch Events
+  const isInitialEventsLoad = useRef(true);
+
   useEffect(() => {
     setIsEventsLoading(true);
+    isInitialEventsLoad.current = true;
     const path = 'events';
     const q = query(
       collection(db, path),
@@ -154,6 +295,33 @@ function AppContent() {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
+      const currentProfile = userProfileRef.current;
+      if (!isInitialEventsLoad.current && currentProfile?.notificationsEnabled && currentProfile?.notificationCity === selectedCity) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const newEvent = change.doc.data() as Event;
+            // Only notify if the event was created recently (within last 5 minutes) to avoid old events triggering notifications
+            const createdAt = new Date(newEvent.createdAt).getTime();
+            const nowTime = new Date().getTime();
+            if (nowTime - createdAt < 5 * 60 * 1000) {
+              const title = 'Nouvel événement !';
+              const message = `${newEvent.title} vient d'être ajouté à ${selectedCity}.`;
+              
+              if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification(title, {
+                  body: message,
+                  icon: '/favicon.ico'
+                });
+              } else {
+                setToastNotification({ title, message });
+                setTimeout(() => setToastNotification(null), 5000);
+              }
+            }
+          }
+        });
+      }
+      isInitialEventsLoad.current = false;
+
       let eventsData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -194,7 +362,8 @@ function AppContent() {
     const q = query(
       collection(db, path),
       where('city', '==', selectedCity),
-      orderBy('createdAt', 'desc')
+      orderBy('createdAt', 'desc'),
+      limit(momentsLimit + 1)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -202,7 +371,14 @@ function AppContent() {
         id: doc.id,
         ...doc.data()
       })) as Moment[];
-      setMoments(momentsData);
+      
+      if (momentsData.length > momentsLimit) {
+        setHasMoreMoments(true);
+        setMoments(momentsData.slice(0, momentsLimit));
+      } else {
+        setHasMoreMoments(false);
+        setMoments(momentsData);
+      }
       setIsMomentsLoading(false);
     }, (err) => {
       setIsMomentsLoading(false);
@@ -210,7 +386,7 @@ function AppContent() {
     });
 
     return () => unsubscribe();
-  }, [selectedCity]);
+  }, [selectedCity, momentsLimit]);
 
   // Fetch Hotspots
   useEffect(() => {
@@ -255,9 +431,88 @@ function AppContent() {
     return () => unsubscribe();
   }, [user]);
 
+  // Upcoming events notification
+  useEffect(() => {
+    if (!userProfile?.notificationsEnabled || userProfile?.notificationCity !== selectedCity) return;
+
+    const checkUpcomingEvents = () => {
+      const now = new Date().getTime();
+      const twoHoursInMs = 2 * 60 * 60 * 1000;
+      
+      events.forEach(event => {
+        // Parse event date and time
+        // Assuming event.date is YYYY-MM-DD and event.time is HH:MM
+        if (!event.date || !event.time) return;
+        
+        const eventDateTimeStr = `${event.date}T${event.time}`;
+        const eventTime = new Date(eventDateTimeStr).getTime();
+        
+        if (isNaN(eventTime)) return;
+        
+        const timeDiff = eventTime - now;
+        
+        // If event starts in less than 2 hours and is in the future
+        if (timeDiff > 0 && timeDiff <= twoHoursInMs) {
+          const notifiedEvents = JSON.parse(localStorage.getItem('notifiedUpcomingEvents') || '{}');
+          
+          // Check if we already notified for this event
+          if (!notifiedEvents[event.id]) {
+            const title = 'Événement imminent !';
+            const message = `L'événement "${event.title}" commence dans moins de 2 heures à ${event.city}.`;
+            
+            if ('Notification' in window && Notification.permission === 'granted') {
+              new Notification(title, {
+                body: message,
+                icon: '/favicon.ico'
+              });
+            } else {
+              setToastNotification({ title, message });
+              setTimeout(() => setToastNotification(null), 5000);
+            }
+            
+            // Mark as notified
+            notifiedEvents[event.id] = true;
+            localStorage.setItem('notifiedUpcomingEvents', JSON.stringify(notifiedEvents));
+          }
+        }
+      });
+    };
+
+    // Check immediately and then every minute
+    checkUpcomingEvents();
+    const intervalId = setInterval(checkUpcomingEvents, 60 * 1000);
+    
+    return () => clearInterval(intervalId);
+  }, [events, userProfile, selectedCity]);
+
   const handleLogin = () => {
     const provider = new GoogleAuthProvider();
     signInWithPopup(auth, provider);
+  };
+
+  useEffect(() => {
+    setIsAiFilterActive(false);
+    setAiFilteredEvents(null);
+  }, [searchQuery, selectedCategory, sortBy, selectedCity]);
+
+  const handleAiFilterToggle = async () => {
+    if (isAiFilterActive) {
+      setIsAiFilterActive(false);
+      return;
+    }
+    
+    setIsAiFilterActive(true);
+    setIsAiFiltering(true);
+    
+    try {
+      const res = await filterEventsWithAI(filteredEvents, userProfile, selectedCity, searchQuery);
+      setAiFilteredEvents(res.recommendations || []);
+    } catch (err) {
+      console.error(err);
+      setAiFilteredEvents([]);
+    } finally {
+      setIsAiFiltering(false);
+    }
   };
 
   const handleSearch = async () => {
@@ -387,12 +642,26 @@ function AppContent() {
             <p className="text-[10px] font-bold text-brand-primary uppercase tracking-[0.2em]">Bienvenue au Togo</p>
             <h1 className="text-2xl font-black text-slate-900 tracking-tight">Salut, {user.displayName?.split(' ')[0]} 👋</h1>
           </div>
-          <button 
-            onClick={() => auth.signOut()}
-            className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-200 transition-colors"
-          >
-            <LogOut size={18} />
-          </button>
+          <div className="flex gap-2">
+            <button 
+              onClick={handleToggleNotifications}
+              className={cn(
+                "w-10 h-10 rounded-full flex items-center justify-center transition-colors",
+                userProfile?.notificationsEnabled && userProfile?.notificationCity === selectedCity
+                  ? "bg-emerald-100 text-emerald-600 hover:bg-emerald-200"
+                  : "bg-slate-100 text-slate-400 hover:bg-slate-200"
+              )}
+              title={userProfile?.notificationsEnabled && userProfile?.notificationCity === selectedCity ? "Désactiver les notifications" : "Activer les notifications pour cette ville"}
+            >
+              {userProfile?.notificationsEnabled && userProfile?.notificationCity === selectedCity ? <Bell size={18} /> : <BellOff size={18} />}
+            </button>
+            <button 
+              onClick={() => auth.signOut()}
+              className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-200 transition-colors"
+            >
+              <LogOut size={18} />
+            </button>
+          </div>
         </div>
         <CitySelector selectedCity={selectedCity} setSelectedCity={setSelectedCity} />
       </header>
@@ -534,6 +803,7 @@ function AppContent() {
                         event={event} 
                         isFavorite={favorites.includes(event.id)}
                         onToggleFavorite={handleToggleFavorite}
+                        onView={handleViewEvent}
                       />
                     ))}
                   </>
@@ -611,15 +881,67 @@ function AppContent() {
                     <option value="favorites">Populaires</option>
                   </select>
                 </div>
+                
+                <div className="mt-4">
+                  <button
+                    onClick={handleAiFilterToggle}
+                    disabled={isAiFiltering}
+                    className={cn(
+                      "w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-bold transition-all",
+                      isAiFilterActive 
+                        ? "bg-emerald-600 text-white shadow-lg shadow-emerald-200" 
+                        : "bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-100"
+                    )}
+                  >
+                    {isAiFiltering ? (
+                      <Loader2 className="animate-spin" size={18} />
+                    ) : (
+                      <Sparkles size={18} className={isAiFilterActive ? "text-white" : "text-emerald-500"} />
+                    )}
+                    {isAiFilterActive ? "Filtre IA activé" : "Filtrer par IA"}
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-4">
-                {isEventsLoading ? (
+                {isEventsLoading || isAiFiltering ? (
                   <>
                     <SkeletonEventCard />
                     <SkeletonEventCard />
                     <SkeletonEventCard />
                   </>
+                ) : isAiFilterActive && aiFilteredEvents ? (
+                  aiFilteredEvents.length > 0 ? (
+                    aiFilteredEvents.map(aiEvent => {
+                      const event = filteredEvents.find(e => e.id === aiEvent.id);
+                      if (!event) return null;
+                      return (
+                        <div key={event.id} className="relative">
+                          <EventCard 
+                            event={event} 
+                            isFavorite={favorites.includes(event.id)}
+                            onToggleFavorite={handleToggleFavorite}
+                            allEvents={events}
+                            onView={handleViewEvent}
+                          />
+                          <div className="mt-2 bg-emerald-50 border border-emerald-100 rounded-xl p-3 flex items-start gap-2">
+                            <Sparkles className="text-emerald-500 shrink-0 mt-0.5" size={16} />
+                            <p className="text-xs text-emerald-800">{aiEvent.reason}</p>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="bg-white rounded-3xl p-12 text-center border border-dashed border-slate-200 flex flex-col items-center justify-center min-h-[300px]">
+                      <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6">
+                        <SearchX size={40} className="text-slate-300" />
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-800 mb-2">Aucun événement trouvé</h3>
+                      <p className="text-slate-500 max-w-md mx-auto">
+                        L'IA n'a trouvé aucun événement correspondant à vos critères.
+                      </p>
+                    </div>
+                  )
                 ) : filteredEvents.length > 0 ? (
                   <>
                     {filteredEvents.map(event => (
@@ -629,6 +951,7 @@ function AppContent() {
                         isFavorite={favorites.includes(event.id)}
                         onToggleFavorite={handleToggleFavorite}
                         allEvents={events}
+                        onView={handleViewEvent}
                       />
                     ))}
                     {hasMoreEvents && (
@@ -648,6 +971,59 @@ function AppContent() {
                     <h3 className="text-xl font-bold text-slate-800 mb-2">Aucun événement trouvé</h3>
                     <p className="text-slate-500 max-w-md mx-auto">
                       Nous n'avons trouvé aucun événement correspondant à vos critères. Essayez de modifier vos filtres ou de chercher dans une autre ville.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'recommendations' && (
+            <motion.div
+              key="recommendations"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-black text-gray-900 tracking-tight">Pour Vous</h2>
+              </div>
+              
+              <div className="bg-emerald-50 rounded-2xl p-4 mb-6 border border-emerald-100 flex items-start gap-3">
+                <Sparkles className="text-emerald-500 shrink-0 mt-1" size={20} />
+                <p className="text-sm text-emerald-800 leading-relaxed">
+                  Ces événements sont recommandés en fonction de vos préférences et de votre historique de navigation à {selectedCity}.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                {isEventsLoading ? (
+                  <>
+                    <SkeletonEventCard />
+                    <SkeletonEventCard />
+                    <SkeletonEventCard />
+                  </>
+                ) : recommendedEvents.length > 0 ? (
+                  <>
+                    {recommendedEvents.slice(0, 10).map(event => (
+                      <EventCard 
+                        key={event.id} 
+                        event={event} 
+                        isFavorite={favorites.includes(event.id)}
+                        onToggleFavorite={handleToggleFavorite}
+                        allEvents={events}
+                        onView={handleViewEvent}
+                      />
+                    ))}
+                  </>
+                ) : (
+                  <div className="bg-white rounded-3xl p-12 text-center border border-dashed border-slate-200 flex flex-col items-center justify-center min-h-[300px]">
+                    <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6">
+                      <CalendarX size={40} className="text-slate-300" />
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-800 mb-2">Aucune recommandation</h3>
+                    <p className="text-slate-500 max-w-md mx-auto">
+                      Nous n'avons pas encore assez de données pour vous recommander des événements. Explorez l'application pour nous aider à mieux vous connaître !
                     </p>
                   </div>
                 )}
@@ -683,6 +1059,14 @@ function AppContent() {
                   <MomentCard key={moment.id} moment={moment} />
                 ))}
               </div>
+              {hasMoreMoments && (
+                <button
+                  onClick={() => setMomentsLimit(prev => prev + 10)}
+                  className="w-full py-4 mt-6 bg-white border-2 border-emerald-100 text-emerald-600 font-bold rounded-2xl hover:bg-emerald-50 transition-colors"
+                >
+                  Charger plus
+                </button>
+              )}
             </motion.div>
           )}
 
@@ -695,54 +1079,65 @@ function AppContent() {
             >
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-black text-gray-900 tracking-tight">Hotspots {selectedCity}</h2>
-                <button 
-                  onClick={async () => {
-                    if (!user) {
-                      alert("Veuillez vous connecter pour ajouter des hotspots.");
-                      return;
-                    }
-                    const sampleHotspots = [
-                      {
-                        name: "Bistrot de la Mer",
-                        description: "Le meilleur poisson braisé de la côte avec vue sur l'océan.",
-                        type: "restaurant",
-                        location: "Zone Portuaire",
-                        city: "Lomé",
-                        rating: 4.8,
-                        createdAt: new Date().toISOString()
-                      },
-                      {
-                        name: "Le Patio",
-                        description: "Un bar lounge chic pour vos soirées entre amis.",
-                        type: "bar",
-                        location: "Cité OUA",
-                        city: "Lomé",
-                        rating: 4.5,
-                        createdAt: new Date().toISOString()
-                      },
-                      {
-                        name: "Coco Beach",
-                        description: "Détente et cocktails sur le sable fin.",
-                        type: "beach",
-                        location: "Route d'Aného",
-                        city: "Lomé",
-                        rating: 4.7,
-                        createdAt: new Date().toISOString()
+                <div className="flex items-center gap-2">
+                  <select
+                    value={hotspotSortBy}
+                    onChange={(e) => setHotspotSortBy(e.target.value as any)}
+                    className="bg-white border border-gray-100 rounded-xl px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  >
+                    <option value="date">Date d'ajout</option>
+                    <option value="rating">Note</option>
+                    <option value="popularity">Popularité</option>
+                  </select>
+                  <button 
+                    onClick={async () => {
+                      if (!user) {
+                        alert("Veuillez vous connecter pour ajouter des hotspots.");
+                        return;
                       }
-                    ];
-                    try {
-                      for (const h of sampleHotspots) {
-                        await addDoc(collection(db, 'hotspots'), h);
+                      const sampleHotspots = [
+                        {
+                          name: "Bistrot de la Mer",
+                          description: "Le meilleur poisson braisé de la côte avec vue sur l'océan.",
+                          type: "restaurant",
+                          location: "Zone Portuaire",
+                          city: "Lomé",
+                          rating: 4.8,
+                          createdAt: new Date().toISOString()
+                        },
+                        {
+                          name: "Le Patio",
+                          description: "Un bar lounge chic pour vos soirées entre amis.",
+                          type: "bar",
+                          location: "Cité OUA",
+                          city: "Lomé",
+                          rating: 4.5,
+                          createdAt: new Date().toISOString()
+                        },
+                        {
+                          name: "Coco Beach",
+                          description: "Détente et cocktails sur le sable fin.",
+                          type: "beach",
+                          location: "Route d'Aného",
+                          city: "Lomé",
+                          rating: 4.7,
+                          createdAt: new Date().toISOString()
+                        }
+                      ];
+                      try {
+                        for (const h of sampleHotspots) {
+                          await addDoc(collection(db, 'hotspots'), h);
+                        }
+                        alert("Hotspots ajoutés !");
+                      } catch (err) {
+                        handleFirestoreError(err, OperationType.WRITE, 'hotspots');
                       }
-                      alert("Hotspots ajoutés !");
-                    } catch (err) {
-                      handleFirestoreError(err, OperationType.WRITE, 'hotspots');
-                    }
-                  }}
-                  className="bg-emerald-600 text-white p-2 rounded-xl shadow-lg shadow-emerald-100"
-                >
-                  <Plus size={20} />
-                </button>
+                    }}
+                    className="bg-emerald-600 text-white p-2 rounded-xl shadow-lg shadow-emerald-100"
+                  >
+                    <Plus size={20} />
+                  </button>
+                </div>
               </div>
               {isHotspotsLoading ? (
                 <div className="grid grid-cols-1 gap-4">
@@ -750,9 +1145,9 @@ function AppContent() {
                   <SkeletonHotspotCard />
                   <SkeletonHotspotCard />
                 </div>
-              ) : hotspots.length > 0 ? (
+              ) : sortedHotspots.length > 0 ? (
                 <div className="grid grid-cols-1 gap-4">
-                  {hotspots.map(hotspot => (
+                  {sortedHotspots.map(hotspot => (
                     <HotspotCard key={hotspot.id} hotspot={hotspot} />
                   ))}
                 </div>
@@ -782,6 +1177,7 @@ function AppContent() {
                     event={event} 
                     isFavorite={true}
                     onToggleFavorite={handleToggleFavorite}
+                    onView={handleViewEvent}
                   />
                 ))
               ) : (
@@ -884,6 +1280,31 @@ function AppContent() {
           )}
         </AnimatePresence>
       </main>
+
+      <AnimatePresence>
+        {toastNotification && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.9 }}
+            className="fixed bottom-24 left-6 right-6 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl z-50 flex items-start gap-3 border border-slate-800"
+          >
+            <div className="w-10 h-10 bg-emerald-500/20 rounded-full flex items-center justify-center shrink-0">
+              <Bell className="text-emerald-400" size={20} />
+            </div>
+            <div className="flex-1">
+              <h4 className="font-bold text-sm mb-1">{toastNotification.title}</h4>
+              <p className="text-xs text-slate-300 leading-relaxed">{toastNotification.message}</p>
+            </div>
+            <button 
+              onClick={() => setToastNotification(null)}
+              className="text-slate-400 hover:text-white transition-colors"
+            >
+              <X size={16} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
 

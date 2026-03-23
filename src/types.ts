@@ -4,6 +4,10 @@ export interface UserProfile {
   email: string;
   photoURL?: string;
   role: 'admin' | 'user';
+  notificationsEnabled?: boolean;
+  notificationCity?: string;
+  preferences?: string[]; // Array of categories
+  history?: string[]; // Array of event IDs
 }
 
 export interface Event {

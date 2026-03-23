@@ -76,6 +76,75 @@ export const getEventsInfo = async (city: string, query: string) => {
   };
 };
 
+export const filterEventsWithAI = async (events: any[], userProfile: any, city: string, searchQuery: string) => {
+  const ai = getAI();
+  
+  const eventsData = events.map(e => ({
+    id: e.id,
+    title: e.title,
+    description: e.description,
+    category: e.category,
+    date: e.date,
+    time: e.time,
+    price: e.price
+  }));
+
+  const prompt = `Tu es un assistant IA expert en recommandation d'événements à ${city}.
+  Voici le profil de l'utilisateur :
+  Préférences : ${userProfile?.preferences?.join(', ') || 'Non spécifié'}
+  Historique de catégories : ${JSON.stringify(userProfile?.history || {})}
+  Recherche actuelle : "${searchQuery}"
+  
+  Voici la liste des événements disponibles :
+  ${JSON.stringify(eventsData)}
+  
+  Analyse ces événements en profondeur en fonction des préférences de l'utilisateur, des tendances actuelles, de la pertinence temporelle et de sa recherche.
+  Sélectionne les événements les plus pertinents (maximum 10).
+  
+  Réponds UNIQUEMENT avec un objet JSON au format suivant :
+  {
+    "recommendations": [
+      {
+        "id": "id_de_levenement",
+        "reason": "Raison courte et personnalisée (1 phrase max) expliquant pourquoi cet événement est recommandé pour cet utilisateur."
+      }
+    ]
+  }`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3.1-flash-preview",
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          recommendations: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                id: { type: Type.STRING },
+                reason: { type: Type.STRING }
+              },
+              required: ["id", "reason"]
+            }
+          }
+        },
+        required: ["recommendations"]
+      }
+    }
+  });
+
+  try {
+    const text = response.text || "{}";
+    return JSON.parse(text);
+  } catch (e) {
+    console.error("Failed to parse AI recommendations:", e);
+    return { recommendations: [] };
+  }
+};
+
 export const generateVeoVideo = async (imageBytes: string, prompt: string) => {
   const ai = getAI();
   let operation = await ai.models.generateVideos({

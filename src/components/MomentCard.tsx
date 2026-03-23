@@ -75,8 +75,10 @@ export function MomentCard({ moment }: MomentCardProps) {
           text: moment.caption || 'Découvrez ce moment !',
           url: window.location.href,
         });
-      } catch (error) {
-        console.error("Erreur de partage:", error);
+      } catch (error: any) {
+        if (error.name !== 'AbortError' && !error.message?.includes('canceled')) {
+          console.error("Erreur de partage:", error);
+        }
       }
     } else {
       navigator.clipboard.writeText(window.location.href);

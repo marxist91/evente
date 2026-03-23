@@ -16,9 +16,10 @@ interface EventCardProps {
   isFavorite?: boolean;
   onToggleFavorite?: (eventId: string) => void;
   allEvents?: Event[];
+  onView?: (event: Event) => void;
 }
 
-export function EventCard({ event, isFavorite, onToggleFavorite, allEvents }: EventCardProps) {
+export function EventCard({ event, isFavorite, onToggleFavorite, allEvents, onView }: EventCardProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -190,7 +191,12 @@ export function EventCard({ event, isFavorite, onToggleFavorite, allEvents }: Ev
     <>
       <div 
         className={cn("bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 mb-6 relative flex flex-col cursor-pointer transition-all duration-300 hover:shadow-md", showDetails ? "shadow-md" : "")}
-        onClick={() => setShowDetails(!showDetails)}
+        onClick={() => {
+          if (!showDetails && onView) {
+            onView(event);
+          }
+          setShowDetails(!showDetails);
+        }}
       >
         <div 
           className={cn("relative transition-all duration-500 group", showDetails ? "h-72" : "h-48")}
