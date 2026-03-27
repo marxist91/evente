@@ -191,9 +191,9 @@ export function VideoRecorder({ onRecordingComplete, onCancel }: VideoRecorderPr
 
   if (error) {
     return (
-      <div className="relative aspect-[9/16] max-h-[400px] mx-auto rounded-2xl bg-slate-900 flex flex-col items-center justify-center p-6 text-center">
+      <div className="relative aspect-[9/16] max-h-[400px] mx-auto rounded-2xl bg-[#1A1525] flex flex-col items-center justify-center p-6 text-center border border-white/10">
         <p className="text-rose-400 text-sm mb-4">{error}</p>
-        <button onClick={onCancel} className="px-4 py-2 bg-white/10 text-white rounded-full text-sm font-bold">
+        <button onClick={onCancel} className="px-4 py-2 bg-white/10 text-white rounded-full text-sm font-bold border border-white/10 hover:bg-white/20 transition-colors">
           Retour
         </button>
       </div>
@@ -201,12 +201,12 @@ export function VideoRecorder({ onRecordingComplete, onCancel }: VideoRecorderPr
   }
 
   return (
-    <div className="relative aspect-[9/16] max-h-[400px] mx-auto rounded-2xl bg-black overflow-hidden flex flex-col items-center justify-center">
+    <div className="relative aspect-[9/16] max-h-[400px] mx-auto rounded-2xl bg-[#0B0814] overflow-hidden flex flex-col items-center justify-center border border-white/10">
       {/* Progress Bar */}
       {isRecording && (
         <div className="absolute top-0 left-0 right-0 h-1.5 bg-black/30 z-50">
           <div 
-            className="h-full bg-rose-500 transition-all duration-1000 ease-linear"
+            className="h-full bg-orange-500 transition-all duration-1000 ease-linear"
             style={{ width: `${progressPercentage}%` }}
           />
         </div>
@@ -221,10 +221,10 @@ export function VideoRecorder({ onRecordingComplete, onCancel }: VideoRecorderPr
       />
       
       <div className="absolute top-4 right-4 flex flex-col gap-3 z-40">
-        <button onClick={onCancel} className="p-2 bg-black/50 text-white rounded-full backdrop-blur-md hover:bg-black/70 transition-colors">
+        <button onClick={onCancel} className="p-2 bg-[#0B0814]/50 text-white rounded-full backdrop-blur-md hover:bg-[#0B0814]/70 transition-colors border border-white/10">
           <X size={20} />
         </button>
-        <button onClick={handleSwitchCamera} className="p-2 bg-black/50 text-white rounded-full backdrop-blur-md hover:bg-black/70 transition-colors">
+        <button onClick={handleSwitchCamera} className="p-2 bg-[#0B0814]/50 text-white rounded-full backdrop-blur-md hover:bg-[#0B0814]/70 transition-colors border border-white/10">
           <SwitchCamera size={20} />
         </button>
       </div>
@@ -232,8 +232,8 @@ export function VideoRecorder({ onRecordingComplete, onCancel }: VideoRecorderPr
       <div className="absolute top-4 left-4 flex items-center gap-2 z-40">
         {isRecording && (
           <>
-            <div className={`w-3 h-3 rounded-full bg-rose-500 ${!isPaused ? 'animate-pulse' : ''}`} />
-            <span className="text-white text-sm font-bold font-mono bg-black/50 px-2 py-1 rounded-md backdrop-blur-md">
+            <div className={`w-3 h-3 rounded-full bg-orange-500 ${!isPaused ? 'animate-pulse' : ''}`} />
+            <span className="text-white text-sm font-bold font-mono bg-[#0B0814]/50 px-2 py-1 rounded-md backdrop-blur-md border border-white/10">
               {formatTime(recordingTime)} / {formatTime(MAX_DURATION)}
             </span>
           </>
@@ -244,7 +244,7 @@ export function VideoRecorder({ onRecordingComplete, onCancel }: VideoRecorderPr
         {!isRecording ? (
           <button 
             onClick={startRecording}
-            className="w-16 h-16 bg-rose-500 rounded-full border-4 border-white/50 flex items-center justify-center shadow-lg hover:scale-105 transition-transform"
+            className="w-16 h-16 bg-orange-500 rounded-full border-4 border-white/50 flex items-center justify-center shadow-lg hover:scale-105 transition-transform"
           >
             <Camera size={24} className="text-white" />
           </button>
@@ -259,9 +259,9 @@ export function VideoRecorder({ onRecordingComplete, onCancel }: VideoRecorderPr
             
             <button 
               onClick={stopRecording}
-              className="w-16 h-16 bg-transparent rounded-full border-4 border-rose-500 flex items-center justify-center shadow-lg hover:scale-105 transition-transform"
+              className="w-16 h-16 bg-transparent rounded-full border-4 border-orange-500 flex items-center justify-center shadow-lg hover:scale-105 transition-transform"
             >
-              <Square size={20} className="text-rose-500" fill="currentColor" />
+              <Square size={20} className="text-orange-500" fill="currentColor" />
             </button>
           </>
         )}

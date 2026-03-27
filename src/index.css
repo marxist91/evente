@@ -3,9 +3,6 @@
 
 @theme {
   --font-sans: "Inter", system-ui, sans-serif;
-  --color-brand-primary: #10b981; /* Emerald 500 */
-  --color-brand-secondary: #064e3b; /* Emerald 900 */
-  --color-bg-app: #f8fafc; /* Slate 50 */
 }
 
 @layer utilities {
@@ -19,5 +16,7 @@
 }
 
 body {
-  @apply antialiased text-slate-900 bg-slate-50 font-sans;
+  @apply antialiased text-white bg-[#0B0814] font-sans;
+  background-image: radial-gradient(circle at 50% 0%, #3B1C7A 0%, #0B0814 60%);
+  background-attachment: fixed;
 }

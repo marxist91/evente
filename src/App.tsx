@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { auth, db, requestNotificationPermission } from './firebase';
 import Fuse from 'fuse.js';
 import { 
@@ -15,6 +15,8 @@ import {
   onSnapshot,
   addDoc,
   setDoc,
+  updateDoc,
+  getDoc,
   doc,
   serverTimestamp,
   writeBatch,
@@ -34,25 +36,35 @@ import {
   LogOut,
   Map as MapIcon,
   MapPin,
+  Calendar,
   CalendarX,
   SearchX,
   Bell,
   BellOff,
-  X
+  X,
+  ShieldAlert,
+  MessageSquare,
+  Filter,
+  TrendingUp,
+  ChevronDown,
+  Clock
 } from 'lucide-react';
 
 import { Navigation } from './components/Navigation';
 import { CitySelector } from './components/CitySelector';
-import { EventCard } from './components/EventCard';
-import { MomentCard } from './components/MomentCard';
-import { TogoCity, Event, Moment, Hotspot, UserProfile } from './types';
+import { TogoCity, TOGO_CITIES, Event, Moment, Hotspot, UserProfile } from './types';
 import { generateEventPoster, getEventsInfo, generateVeoVideo, filterEventsWithAI } from './services/ai';
 import { cn } from './lib/utils';
 import { handleFirestoreError, OperationType } from './lib/firestore-errors';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { HotspotCard } from './components/HotspotCard';
-import { AddEventModal } from './components/AddEventModal';
-import { AddMomentModal } from './components/AddMomentModal';
+
+const EventCard = lazy(() => import('./components/EventCard').then(m => ({ default: m.EventCard })));
+const MomentCard = lazy(() => import('./components/MomentCard').then(m => ({ default: m.MomentCard })));
+const HotspotCard = lazy(() => import('./components/HotspotCard').then(m => ({ default: m.HotspotCard })));
+const AddEventModal = lazy(() => import('./components/AddEventModal').then(m => ({ default: m.AddEventModal })));
+const AddMomentModal = lazy(() => import('./components/AddMomentModal').then(m => ({ default: m.AddMomentModal })));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+const FeedbackModal = lazy(() => import('./components/FeedbackModal').then(m => ({ default: m.FeedbackModal })));
 
 export default function App() {
   return (
@@ -66,6 +78,14 @@ function AppContent() {
   const [user, loading, error] = useAuthState(auth);
   const [activeTab, setActiveTab] = useState('home');
   const [selectedCity, setSelectedCity] = useState<TogoCity>('Lomé');
+  const [momentsCityFilter, setMomentsCityFilter] = useState<TogoCity | 'all'>('all');
+  const [momentsDateFilter, setMomentsDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [momentsSortFilter, setMomentsSortFilter] = useState<'latest' | 'popular'>('latest');
+
+  useEffect(() => {
+    setMomentsLimit(10);
+  }, [momentsCityFilter, momentsDateFilter, momentsSortFilter]);
+
   const [events, setEvents] = useState<Event[]>([]);
   const [moments, setMoments] = useState<Moment[]>([]);
   const [hotspots, setHotspots] = useState<Hotspot[]>([]);
@@ -77,7 +97,9 @@ function AppContent() {
   const [aiFilteredEvents, setAiFilteredEvents] = useState<{id: string, reason: string}[] | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [isAddEventOpen, setIsAddEventOpen] = useState(false);
+  const [eventToEdit, setEventToEdit] = useState<Event | null>(null);
   const [isAddMomentOpen, setIsAddMomentOpen] = useState(false);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'date' | 'relevance' | 'favorites'>('relevance');
   const [hotspotSortBy, setHotspotSortBy] = useState<'rating' | 'date' | 'popularity'>('date');
@@ -95,6 +117,21 @@ function AppContent() {
   useEffect(() => {
     userProfileRef.current = userProfile;
   }, [userProfile]);
+
+  const handleLogout = async () => {
+    if (user) {
+      try {
+        const userRef = doc(db, 'users', user.uid);
+        await updateDoc(userRef, {
+          isOnline: false,
+          lastLogout: new Date().toISOString()
+        });
+      } catch (err) {
+        console.error('Error updating status on logout:', err);
+      }
+    }
+    auth.signOut();
+  };
 
   const handleToggleNotifications = async () => {
     if (!user) return;
@@ -249,12 +286,20 @@ function AppContent() {
       
       const syncProfile = async () => {
         try {
+          // Check if user already exists to preserve role
+          const userDoc = await getDoc(userRef);
+          const existingData = userDoc.data();
+          const isDefaultAdmin = user.email === 'marxist1991@gmail.com';
+          const role = existingData?.role || (isDefaultAdmin ? 'admin' : 'user');
+
           await setDoc(userRef, {
             uid: user.uid,
             displayName: user.displayName || 'Utilisateur',
             email: user.email,
             photoURL: user.photoURL,
-            role: 'user'
+            role: role,
+            isOnline: true,
+            lastLogin: new Date().toISOString()
           }, { merge: true });
         } catch (err) {
           handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
@@ -262,13 +307,50 @@ function AppContent() {
       };
       syncProfile();
 
+      // Heartbeat to keep user online
+      const heartbeat = setInterval(async () => {
+        try {
+          await updateDoc(userRef, {
+            isOnline: true,
+            lastSeen: new Date().toISOString()
+          });
+        } catch (err) {
+          // Ignore heartbeat errors
+        }
+      }, 60000); // Every minute
+
+      const handleUnload = () => {
+        // We can't use async here reliably, but we can try to use navigator.sendBeacon
+        // or just accept that it might not work every time.
+        // For Firestore, we can't easily use sendBeacon.
+        // Let's try to update it.
+        updateDoc(userRef, {
+          isOnline: false,
+          lastLogout: new Date().toISOString()
+        }).catch(() => {});
+      };
+
+      window.addEventListener('beforeunload', handleUnload);
+
       const unsubscribe = onSnapshot(userRef, (docSnap) => {
         if (docSnap.exists()) {
-          setUserProfile(docSnap.data() as UserProfile);
+          const data = docSnap.data() as UserProfile;
+          if (data.forceLogout) {
+            // Reset forceLogout flag and sign out
+            updateDoc(userRef, { forceLogout: false, isOnline: false, lastLogout: new Date().toISOString() }).then(() => {
+              auth.signOut();
+            });
+          } else {
+            setUserProfile(data);
+          }
         }
       });
 
-      return () => unsubscribe();
+      return () => {
+        unsubscribe();
+        clearInterval(heartbeat);
+        window.removeEventListener('beforeunload', handleUnload);
+      };
     } else {
       setUserProfile(null);
     }
@@ -359,12 +441,45 @@ function AppContent() {
   useEffect(() => {
     setIsMomentsLoading(true);
     const path = 'moments';
-    const q = query(
-      collection(db, path),
-      where('city', '==', selectedCity),
-      orderBy('createdAt', 'desc'),
-      limit(momentsLimit + 1)
-    );
+    
+    const getStartDate = (filter: string) => {
+      const now = new Date();
+      if (filter === 'today') {
+        const start = new Date(now);
+        start.setHours(0, 0, 0, 0);
+        return start.toISOString();
+      }
+      if (filter === 'week') {
+        const start = new Date(now);
+        start.setDate(now.getDate() - 7);
+        return start.toISOString();
+      }
+      if (filter === 'month') {
+        const start = new Date(now);
+        start.setMonth(now.getMonth() - 1);
+        return start.toISOString();
+      }
+      return null;
+    };
+
+    let q = query(collection(db, path));
+
+    if (momentsCityFilter !== 'all') {
+      q = query(q, where('city', '==', momentsCityFilter));
+    }
+
+    const startDate = getStartDate(momentsDateFilter);
+    if (startDate) {
+      q = query(q, where('createdAt', '>=', startDate));
+    }
+
+    if (momentsSortFilter === 'latest') {
+      q = query(q, orderBy('createdAt', 'desc'));
+    } else {
+      q = query(q, orderBy('likesCount', 'desc'));
+    }
+
+    q = query(q, limit(momentsLimit + 1));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const momentsData = snapshot.docs.map(doc => ({
@@ -386,11 +501,14 @@ function AppContent() {
     });
 
     return () => unsubscribe();
-  }, [selectedCity, momentsLimit]);
+  }, [momentsCityFilter, momentsDateFilter, momentsSortFilter, momentsLimit]);
 
   // Fetch Hotspots
+  const isInitialHotspotsLoad = useRef(true);
+
   useEffect(() => {
     setIsHotspotsLoading(true);
+    isInitialHotspotsLoad.current = true;
     const path = 'hotspots';
     const q = query(
       collection(db, path),
@@ -399,6 +517,33 @@ function AppContent() {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
+      const currentProfile = userProfileRef.current;
+      if (!isInitialHotspotsLoad.current && currentProfile?.notificationsEnabled && currentProfile?.notificationCity === selectedCity) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const newHotspot = change.doc.data() as Hotspot;
+            // Only notify if the hotspot was created recently (within last 5 minutes)
+            const createdAt = new Date(newHotspot.createdAt).getTime();
+            const nowTime = new Date().getTime();
+            if (nowTime - createdAt < 5 * 60 * 1000) {
+              const title = 'Nouveau hotspot !';
+              const message = `${newHotspot.name} vient d'être ajouté à ${selectedCity}.`;
+              
+              if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification(title, {
+                  body: message,
+                  icon: '/favicon.ico'
+                });
+              } else {
+                setToastNotification({ title, message });
+                setTimeout(() => setToastNotification(null), 5000);
+              }
+            }
+          }
+        });
+      }
+      isInitialHotspotsLoad.current = false;
+
       const hotspotsData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -554,6 +699,11 @@ function AppContent() {
     }
   };
 
+  const handleEditEvent = (event: Event) => {
+    setEventToEdit(event);
+    setIsAddEventOpen(true);
+  };
+
   const handleSeedData = async () => {
     const sampleEvents = [
       {
@@ -607,25 +757,25 @@ function AppContent() {
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-white">
-        <Loader2 className="animate-spin text-emerald-600" size={40} />
+      <div className="h-screen flex items-center justify-center bg-[#0B0814]">
+        <Loader2 className="animate-spin text-purple-500" size={40} />
       </div>
     );
   }
 
   if (!user) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-white p-8 text-center">
-        <div className="w-24 h-24 bg-emerald-100 rounded-3xl flex items-center justify-center mb-8">
-          <Sparkles className="text-emerald-600" size={48} />
+      <div className="h-screen flex flex-col items-center justify-center bg-[#0B0814] p-8 text-center">
+        <div className="w-24 h-24 bg-orange-500/20 rounded-3xl flex items-center justify-center mb-8 border border-orange-500/30 shadow-lg shadow-orange-500/20">
+          <Sparkles className="text-orange-400" size={48} />
         </div>
-        <h1 className="text-4xl font-black text-gray-900 mb-4 tracking-tighter">TOGO EVENTS</h1>
-        <p className="text-gray-500 mb-12 max-w-xs">
+        <h1 className="text-4xl font-black text-white mb-4 tracking-tighter">TOGO EVENTS</h1>
+        <p className="text-purple-200/70 mb-12 max-w-xs">
           Découvrez les meilleures soirées et événements culturels au Togo.
         </p>
         <button
           onClick={handleLogin}
-          className="w-full max-w-xs bg-gray-900 text-white py-4 rounded-2xl font-bold shadow-xl shadow-gray-200 hover:bg-black transition-all"
+          className="w-full max-w-xs bg-white/10 border border-white/20 text-white py-4 rounded-2xl font-bold shadow-xl shadow-orange-500/20 hover:bg-white/20 transition-all"
         >
           Se connecter avec Google
         </button>
@@ -634,30 +784,30 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-24">
+    <div className="min-h-screen pb-24 text-white">
       {/* Header */}
-      <header className="bg-white px-6 pt-10 pb-6 sticky top-0 z-40 border-b border-slate-100 shadow-sm">
+      <header className="bg-[#0B0814]/80 backdrop-blur-xl px-6 pt-10 pb-6 sticky top-0 z-40 border-b border-white/10">
         <div className="flex justify-between items-center mb-6">
           <div>
-            <p className="text-[10px] font-bold text-brand-primary uppercase tracking-[0.2em]">Bienvenue au Togo</p>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Salut, {user.displayName?.split(' ')[0]} 👋</h1>
+            <p className="text-[10px] font-bold text-purple-400 uppercase tracking-[0.2em]">Bienvenue au Togo</p>
+            <h1 className="text-2xl font-black text-white tracking-tight">Salut, {user.displayName?.split(' ')[0]} 👋</h1>
           </div>
           <div className="flex gap-2">
             <button 
               onClick={handleToggleNotifications}
               className={cn(
-                "w-10 h-10 rounded-full flex items-center justify-center transition-colors",
+                "w-10 h-10 rounded-full flex items-center justify-center transition-colors border border-white/10",
                 userProfile?.notificationsEnabled && userProfile?.notificationCity === selectedCity
-                  ? "bg-emerald-100 text-emerald-600 hover:bg-emerald-200"
-                  : "bg-slate-100 text-slate-400 hover:bg-slate-200"
+                  ? "bg-purple-500/20 text-purple-400 hover:bg-purple-500/30"
+                  : "bg-white/5 text-purple-200/50 hover:bg-white/10"
               )}
               title={userProfile?.notificationsEnabled && userProfile?.notificationCity === selectedCity ? "Désactiver les notifications" : "Activer les notifications pour cette ville"}
             >
               {userProfile?.notificationsEnabled && userProfile?.notificationCity === selectedCity ? <Bell size={18} /> : <BellOff size={18} />}
             </button>
             <button 
-              onClick={() => auth.signOut()}
-              className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-200 transition-colors"
+              onClick={handleLogout}
+              className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-purple-200/50 hover:bg-white/10 transition-colors"
             >
               <LogOut size={18} />
             </button>
@@ -666,9 +816,12 @@ function AppContent() {
         <CitySelector selectedCity={selectedCity} setSelectedCity={setSelectedCity} />
       </header>
 
+      <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
+
       <main className="px-6 pt-8">
-        <AnimatePresence mode="wait">
-          {activeTab === 'home' && (
+        <Suspense fallback={<div className="flex justify-center p-12"><Loader2 className="animate-spin text-purple-500" size={32} /></div>}>
+          <AnimatePresence mode="wait">
+            {activeTab === 'home' && (
             <motion.div
               key="home"
               initial={{ opacity: 0, y: 20 }}
@@ -677,10 +830,11 @@ function AppContent() {
               className="space-y-10"
             >
               {/* Search AI */}
-              <div className="bg-slate-900 rounded-3xl p-8 text-white shadow-xl relative overflow-hidden">
+              <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 text-white shadow-2xl shadow-orange-500/10 relative overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-br from-purple-500/20 to-transparent pointer-events-none" />
                 <div className="relative z-10">
                   <h2 className="text-2xl font-bold mb-2">Besoin d'idées ?</h2>
-                  <p className="text-slate-400 text-sm mb-6">Demandez à notre IA de trouver les coins chauds à {selectedCity}.</p>
+                  <p className="text-purple-200/70 text-sm mb-6">Demandez à notre IA de trouver les coins chauds à {selectedCity}.</p>
                   <div className="flex gap-2">
                     <input 
                       type="text" 
@@ -690,41 +844,41 @@ function AppContent() {
                         setSearchQuery(e.target.value);
                         if (aiResponse) setAiResponse(null);
                       }}
-                      className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:bg-white/10 text-white placeholder:text-slate-500"
+                      className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:bg-white/10 text-white placeholder:text-purple-200/40 transition-colors"
                     />
                     <button 
                       onClick={handleSearch}
                       disabled={isAiLoading}
-                      className="bg-brand-primary text-slate-900 p-3 rounded-2xl hover:bg-emerald-400 transition-colors"
+                      className="bg-white text-black p-3 rounded-2xl hover:bg-white/90 transition-colors font-semibold shadow-lg shadow-orange-500/20"
                     >
                       {isAiLoading ? <Loader2 className="animate-spin" size={20} /> : <Search size={20} />}
                     </button>
                   </div>
                   {aiResponse && (
-                    <div className="mt-6 p-5 bg-white/5 rounded-2xl text-sm border border-white/10">
-                      <p className="leading-relaxed text-slate-200 whitespace-pre-wrap">{aiResponse.text}</p>
+                    <div className="mt-6 p-5 bg-white/5 rounded-2xl text-sm border border-white/10 shadow-inner">
+                      <p className="leading-relaxed text-purple-100/90 whitespace-pre-wrap">{aiResponse.text}</p>
                     </div>
                   )}
                 </div>
-                <Sparkles className="absolute -right-6 -bottom-6 text-white/5" size={160} />
+                <Sparkles className="absolute -right-6 -bottom-6 text-orange-500/10" size={160} />
               </div>
 
               {/* Featured Events */}
               <section>
                 <div className="flex justify-between items-end mb-6">
-                  <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+                  <h2 className="text-2xl font-black text-white tracking-tight">
                     {searchQuery ? 'Résultats de recherche' : 'À ne pas manquer'}
                   </h2>
                   {!searchQuery && (
-                    <button onClick={() => setActiveTab('events')} className="text-brand-primary text-xs font-bold uppercase tracking-wider hover:text-brand-secondary transition-colors">Tout voir</button>
+                    <button onClick={() => setActiveTab('events')} className="text-purple-400 text-xs font-bold uppercase tracking-wider hover:text-purple-300 transition-colors">Tout voir</button>
                   )}
                 </div>
 
                 {/* AI Recommended Places */}
                 {searchQuery && (aiResponse?.places?.length > 0 || aiResponse?.grounding?.some((c: any) => c.maps)) && (
                   <div className="mb-8">
-                    <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-                      <Sparkles size={18} className="text-brand-primary" />
+                    <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                      <Sparkles size={18} className="text-purple-400" />
                       Lieux recommandés par l'IA
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -735,9 +889,9 @@ function AppContent() {
                             href={place.mapsUrl || '#'}
                             target={place.mapsUrl ? "_blank" : "_self"}
                             rel="noopener noreferrer"
-                            className="group block bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 hover:shadow-md transition-all duration-300"
+                            className="group block bg-[#1A1525] rounded-3xl overflow-hidden shadow-sm border border-white/10 hover:shadow-orange-500/10 transition-all duration-300"
                           >
-                            <div className="h-48 relative overflow-hidden bg-slate-100">
+                            <div className="h-48 relative overflow-hidden bg-white/5">
                               <img 
                                 src={place.imageUrl || `https://picsum.photos/seed/${encodeURIComponent(place.name)}/800/400`} 
                                 onError={(e) => {
@@ -747,16 +901,16 @@ function AppContent() {
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                                 referrerPolicy="no-referrer"
                               />
-                              <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/40 to-transparent"></div>
+                              <div className="absolute inset-0 bg-gradient-to-t from-[#0B0814]/90 via-[#0B0814]/40 to-transparent"></div>
                               <div className="absolute bottom-4 left-4 right-4 text-white">
                                 <h4 className="font-black text-xl leading-tight mb-1">{place.name}</h4>
                                 {place.mapsUrl && (
-                                  <div className="flex items-center gap-1 text-xs font-medium text-brand-primary mb-2">
+                                  <div className="flex items-center gap-1 text-xs font-medium text-purple-400 mb-2">
                                     <MapPin size={12} />
                                     <span>Voir sur Google Maps</span>
                                   </div>
                                 )}
-                                <p className="text-sm text-slate-200 line-clamp-2">{place.description}</p>
+                                <p className="text-sm text-purple-200/80 line-clamp-2">{place.description}</p>
                               </div>
                             </div>
                           </a>
@@ -768,19 +922,19 @@ function AppContent() {
                             href={chunk.maps.uri}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="group block bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 hover:shadow-md transition-all duration-300"
+                            className="group block bg-[#1A1525] rounded-3xl overflow-hidden shadow-sm border border-white/10 hover:shadow-orange-500/10 transition-all duration-300"
                           >
-                            <div className="h-40 relative overflow-hidden bg-slate-100">
+                            <div className="h-40 relative overflow-hidden bg-white/5">
                               <img 
                                 src={`https://picsum.photos/seed/${encodeURIComponent(chunk.maps.title)}/800/400`} 
                                 alt={chunk.maps.title}
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                                 referrerPolicy="no-referrer"
                               />
-                              <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-slate-900/20 to-transparent"></div>
+                              <div className="absolute inset-0 bg-gradient-to-t from-[#0B0814]/90 via-[#0B0814]/40 to-transparent"></div>
                               <div className="absolute bottom-4 left-4 right-4 text-white">
                                 <h4 className="font-black text-lg leading-tight mb-1">{chunk.maps.title}</h4>
-                                <div className="flex items-center gap-1 text-xs font-medium text-brand-primary">
+                                <div className="flex items-center gap-1 text-xs font-medium text-purple-400">
                                   <MapPin size={12} />
                                   <span>Voir sur Google Maps</span>
                                 </div>
@@ -796,7 +950,7 @@ function AppContent() {
                 {/* Filtered Events */}
                 {filteredEvents.length > 0 ? (
                   <>
-                    {searchQuery && <h3 className="text-lg font-bold text-slate-800 mb-4">Événements correspondants</h3>}
+                    {searchQuery && <h3 className="text-lg font-bold text-white mb-4">Événements correspondants</h3>}
                     {filteredEvents.slice(0, searchQuery ? 10 : 3).map(event => (
                       <EventCard 
                         key={event.id} 
@@ -804,17 +958,18 @@ function AppContent() {
                         isFavorite={favorites.includes(event.id)}
                         onToggleFavorite={handleToggleFavorite}
                         onView={handleViewEvent}
+                        onEdit={handleEditEvent}
                       />
                     ))}
                   </>
                 ) : (
                   (!aiResponse || (!aiResponse.places?.length && !aiResponse.grounding?.some((c: any) => c.maps))) && (
-                    <div className="bg-white rounded-3xl p-12 text-center border border-dashed border-slate-200 flex flex-col items-center justify-center min-h-[300px]">
-                      <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6">
-                        <SearchX size={40} className="text-slate-300" />
+                    <div className="bg-[#1A1525] rounded-3xl p-12 text-center border border-dashed border-white/10 flex flex-col items-center justify-center min-h-[300px]">
+                      <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-6">
+                        <SearchX size={40} className="text-white/30" />
                       </div>
-                      <h3 className="text-xl font-bold text-slate-800 mb-2">Aucun résultat</h3>
-                      <p className="text-slate-500 max-w-md mx-auto">
+                      <h3 className="text-xl font-bold text-white mb-2">Aucun résultat</h3>
+                      <p className="text-white/50 max-w-md mx-auto">
                         Nous n'avons trouvé aucun événement pour "{searchQuery}". Essayez avec d'autres mots-clés.
                       </p>
                     </div>
@@ -832,10 +987,10 @@ function AppContent() {
               exit={{ opacity: 0, y: -20 }}
             >
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-black text-gray-900 tracking-tight">Événements</h2>
+                <h2 className="text-2xl font-black text-white tracking-tight">Événements</h2>
                 <button 
                   onClick={() => setIsAddEventOpen(true)}
-                  className="bg-emerald-600 text-white p-2 rounded-xl shadow-lg shadow-emerald-100"
+                  className="bg-white text-black p-2 rounded-xl shadow-lg shadow-orange-500/20"
                 >
                   <Plus size={20} />
                 </button>
@@ -851,8 +1006,8 @@ function AppContent() {
                       className={cn(
                         "px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-all",
                         selectedCategory === cat
-                          ? "bg-emerald-600 text-white shadow-lg shadow-emerald-100"
-                          : "bg-white text-gray-400 border border-gray-100 hover:border-emerald-200"
+                          ? "bg-purple-600 text-white shadow-lg shadow-orange-500/20"
+                          : "bg-white/5 text-purple-200/50 border border-white/10 hover:border-purple-500/30"
                       )}
                     >
                       {cat === 'all' ? 'Tous' : cat === 'party' ? 'Soirées' : cat === 'culture' ? 'Culture' : cat === 'concert' ? 'Concerts' : cat === 'dance' ? 'Danses (Latines/Afro)' : 'Autres'}
@@ -862,19 +1017,19 @@ function AppContent() {
 
                 <div className="flex items-center justify-between">
                   <div className="relative flex-1 mr-4">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-purple-200/40" size={18} />
                     <input 
                       type="text" 
                       placeholder="Rechercher..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full bg-white border border-gray-100 rounded-2xl pl-12 pr-4 py-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all text-white placeholder:text-purple-200/40"
                     />
                   </div>
                   <select
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value as any)}
-                    className="bg-white border border-gray-100 rounded-2xl px-4 py-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 text-white [&>option]:bg-[#1A1525]"
                   >
                     <option value="relevance">Pertinence</option>
                     <option value="date">Date</option>
@@ -889,14 +1044,14 @@ function AppContent() {
                     className={cn(
                       "w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-bold transition-all",
                       isAiFilterActive 
-                        ? "bg-emerald-600 text-white shadow-lg shadow-emerald-200" 
-                        : "bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-100"
+                        ? "bg-purple-600 text-white shadow-lg shadow-orange-500/20" 
+                        : "bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20"
                     )}
                   >
                     {isAiFiltering ? (
                       <Loader2 className="animate-spin" size={18} />
                     ) : (
-                      <Sparkles size={18} className={isAiFilterActive ? "text-white" : "text-emerald-500"} />
+                      <Sparkles size={18} className={isAiFilterActive ? "text-white" : "text-purple-400"} />
                     )}
                     {isAiFilterActive ? "Filtre IA activé" : "Filtrer par IA"}
                   </button>
@@ -923,21 +1078,22 @@ function AppContent() {
                             onToggleFavorite={handleToggleFavorite}
                             allEvents={events}
                             onView={handleViewEvent}
+                            onEdit={handleEditEvent}
                           />
-                          <div className="mt-2 bg-emerald-50 border border-emerald-100 rounded-xl p-3 flex items-start gap-2">
-                            <Sparkles className="text-emerald-500 shrink-0 mt-0.5" size={16} />
-                            <p className="text-xs text-emerald-800">{aiEvent.reason}</p>
+                          <div className="mt-2 bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 flex items-start gap-2">
+                            <Sparkles className="text-purple-400 shrink-0 mt-0.5" size={16} />
+                            <p className="text-xs text-purple-200/90">{aiEvent.reason}</p>
                           </div>
                         </div>
                       );
                     })
                   ) : (
-                    <div className="bg-white rounded-3xl p-12 text-center border border-dashed border-slate-200 flex flex-col items-center justify-center min-h-[300px]">
-                      <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6">
-                        <SearchX size={40} className="text-slate-300" />
+                    <div className="bg-[#1A1525] rounded-3xl p-12 text-center border border-dashed border-white/10 flex flex-col items-center justify-center min-h-[300px]">
+                      <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-6">
+                        <SearchX size={40} className="text-white/30" />
                       </div>
-                      <h3 className="text-xl font-bold text-slate-800 mb-2">Aucun événement trouvé</h3>
-                      <p className="text-slate-500 max-w-md mx-auto">
+                      <h3 className="text-xl font-bold text-white mb-2">Aucun événement trouvé</h3>
+                      <p className="text-white/50 max-w-md mx-auto">
                         L'IA n'a trouvé aucun événement correspondant à vos critères.
                       </p>
                     </div>
@@ -952,24 +1108,25 @@ function AppContent() {
                         onToggleFavorite={handleToggleFavorite}
                         allEvents={events}
                         onView={handleViewEvent}
+                        onEdit={handleEditEvent}
                       />
                     ))}
                     {hasMoreEvents && (
                       <button
                         onClick={() => setEventsLimit(prev => prev + 5)}
-                        className="w-full py-4 mt-4 bg-white border-2 border-emerald-100 text-emerald-600 font-bold rounded-2xl hover:bg-emerald-50 transition-colors"
+                        className="w-full py-4 mt-4 bg-white/5 border-2 border-white/10 text-purple-400 font-bold rounded-2xl hover:bg-white/10 transition-colors"
                       >
                         Charger plus
                       </button>
                     )}
                   </>
                 ) : (
-                  <div className="bg-white rounded-3xl p-12 text-center border border-dashed border-slate-200 flex flex-col items-center justify-center min-h-[300px]">
-                    <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6">
-                      <CalendarX size={40} className="text-slate-300" />
+                  <div className="bg-[#1A1525] rounded-3xl p-12 text-center border border-dashed border-white/10 flex flex-col items-center justify-center min-h-[300px]">
+                    <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-6">
+                      <CalendarX size={40} className="text-white/30" />
                     </div>
-                    <h3 className="text-xl font-bold text-slate-800 mb-2">Aucun événement trouvé</h3>
-                    <p className="text-slate-500 max-w-md mx-auto">
+                    <h3 className="text-xl font-bold text-white mb-2">Aucun événement trouvé</h3>
+                    <p className="text-white/50 max-w-md mx-auto">
                       Nous n'avons trouvé aucun événement correspondant à vos critères. Essayez de modifier vos filtres ou de chercher dans une autre ville.
                     </p>
                   </div>
@@ -986,12 +1143,12 @@ function AppContent() {
               exit={{ opacity: 0, y: -20 }}
             >
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-black text-gray-900 tracking-tight">Pour Vous</h2>
+                <h2 className="text-2xl font-black text-white tracking-tight">Pour Vous</h2>
               </div>
               
-              <div className="bg-emerald-50 rounded-2xl p-4 mb-6 border border-emerald-100 flex items-start gap-3">
-                <Sparkles className="text-emerald-500 shrink-0 mt-1" size={20} />
-                <p className="text-sm text-emerald-800 leading-relaxed">
+              <div className="bg-purple-500/10 rounded-2xl p-4 mb-6 border border-purple-500/20 flex items-start gap-3">
+                <Sparkles className="text-purple-400 shrink-0 mt-1" size={20} />
+                <p className="text-sm text-purple-200/90 leading-relaxed">
                   Ces événements sont recommandés en fonction de vos préférences et de votre historique de navigation à {selectedCity}.
                 </p>
               </div>
@@ -1013,16 +1170,17 @@ function AppContent() {
                         onToggleFavorite={handleToggleFavorite}
                         allEvents={events}
                         onView={handleViewEvent}
+                        onEdit={handleEditEvent}
                       />
                     ))}
                   </>
                 ) : (
-                  <div className="bg-white rounded-3xl p-12 text-center border border-dashed border-slate-200 flex flex-col items-center justify-center min-h-[300px]">
-                    <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6">
-                      <CalendarX size={40} className="text-slate-300" />
+                  <div className="bg-[#1A1525] rounded-3xl p-12 text-center border border-dashed border-white/10 flex flex-col items-center justify-center min-h-[300px]">
+                    <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-6">
+                      <CalendarX size={40} className="text-white/30" />
                     </div>
-                    <h3 className="text-xl font-bold text-slate-800 mb-2">Aucune recommandation</h3>
-                    <p className="text-slate-500 max-w-md mx-auto">
+                    <h3 className="text-xl font-bold text-white mb-2">Aucune recommandation</h3>
+                    <p className="text-white/50 max-w-md mx-auto">
                       Nous n'avons pas encore assez de données pour vous recommander des événements. Explorez l'application pour nous aider à mieux vous connaître !
                     </p>
                   </div>
@@ -1039,13 +1197,78 @@ function AppContent() {
               exit={{ opacity: 0, y: -20 }}
             >
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-black text-gray-900 tracking-tight">Moments Direct</h2>
+                <h2 className="text-2xl font-black text-white tracking-tight">Moments Direct</h2>
                 <button 
                   onClick={() => setIsAddMomentOpen(true)}
-                  className="bg-emerald-600 text-white p-2 rounded-xl shadow-lg shadow-emerald-100"
+                  className="bg-white text-black p-2 rounded-xl shadow-lg shadow-orange-500/20"
                 >
                   <Video size={20} />
                 </button>
+              </div>
+
+              {/* Moments Filters */}
+              <div className="flex flex-col gap-4 mb-8">
+                <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar scroll-smooth">
+                  <div className="flex items-center gap-2 bg-white/5 p-1 rounded-2xl border border-white/10 shrink-0">
+                    <button
+                      onClick={() => setMomentsSortFilter('latest')}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
+                        momentsSortFilter === 'latest' ? "bg-white text-black shadow-lg" : "text-white/60 hover:text-white"
+                      )}
+                    >
+                      <Clock size={14} />
+                      Récents
+                    </button>
+                    <button
+                      onClick={() => setMomentsSortFilter('popular')}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
+                        momentsSortFilter === 'popular' ? "bg-white text-black shadow-lg" : "text-white/60 hover:text-white"
+                      )}
+                    >
+                      <TrendingUp size={14} />
+                      Populaires
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2 bg-white/5 p-1 rounded-2xl border border-white/10 shrink-0">
+                    {(['all', 'today', 'week', 'month'] as const).map((filter) => (
+                      <button
+                        key={filter}
+                        onClick={() => setMomentsDateFilter(filter)}
+                        className={cn(
+                          "px-4 py-2 rounded-xl text-xs font-bold transition-all capitalize",
+                          momentsDateFilter === filter ? "bg-white text-black shadow-lg" : "text-white/60 hover:text-white"
+                        )}
+                      >
+                        {filter === 'all' ? 'Tout' : filter === 'today' ? 'Aujourd\'hui' : filter === 'week' ? 'Semaine' : 'Mois'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="relative flex-1">
+                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-purple-400" size={16} />
+                    <select
+                      value={momentsCityFilter}
+                      onChange={(e) => setMomentsCityFilter(e.target.value as TogoCity | 'all')}
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl pl-11 pr-10 py-3 text-white text-sm font-bold appearance-none focus:ring-2 focus:ring-purple-500/50 transition-all [&>option]:bg-[#1A1525]"
+                    >
+                      <option value="all">Toutes les villes</option>
+                      {TOGO_CITIES.map(city => (
+                        <option key={city} value={city}>{city}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" size={16} />
+                  </div>
+                  
+                  <div className="flex items-center gap-2 px-4 py-3 bg-white/5 border border-white/10 rounded-2xl">
+                    <Filter size={16} className="text-purple-400" />
+                    <span className="text-xs font-bold text-white/60 uppercase tracking-wider">Filtres</span>
+                  </div>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 {isMomentsLoading ? (
@@ -1055,14 +1278,24 @@ function AppContent() {
                     <SkeletonMomentCard />
                     <SkeletonMomentCard />
                   </>
-                ) : moments.map(moment => (
-                  <MomentCard key={moment.id} moment={moment} />
-                ))}
+                ) : moments.length > 0 ? (
+                  moments.map(moment => (
+                    <MomentCard key={moment.id} moment={moment} />
+                  ))
+                ) : (
+                  <div className="col-span-2 py-20 flex flex-col items-center justify-center text-center">
+                    <div className="bg-white/5 p-6 rounded-full mb-4">
+                      <Video size={40} className="text-purple-400 opacity-20" />
+                    </div>
+                    <h3 className="text-lg font-bold text-white mb-2">Aucun moment trouvé</h3>
+                    <p className="text-sm text-white/50 max-w-[200px]">Essayez de changer vos filtres pour voir plus de contenu.</p>
+                  </div>
+                )}
               </div>
               {hasMoreMoments && (
                 <button
                   onClick={() => setMomentsLimit(prev => prev + 10)}
-                  className="w-full py-4 mt-6 bg-white border-2 border-emerald-100 text-emerald-600 font-bold rounded-2xl hover:bg-emerald-50 transition-colors"
+                  className="w-full py-4 mt-6 bg-white/5 border-2 border-white/10 text-purple-400 font-bold rounded-2xl hover:bg-white/10 transition-colors"
                 >
                   Charger plus
                 </button>
@@ -1078,65 +1311,65 @@ function AppContent() {
               exit={{ opacity: 0, y: -20 }}
             >
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-black text-gray-900 tracking-tight">Hotspots {selectedCity}</h2>
+                <h2 className="text-2xl font-black text-white tracking-tight">Hotspots {selectedCity}</h2>
                 <div className="flex items-center gap-2">
                   <select
                     value={hotspotSortBy}
                     onChange={(e) => setHotspotSortBy(e.target.value as any)}
-                    className="bg-white border border-gray-100 rounded-xl px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 text-white"
                   >
                     <option value="date">Date d'ajout</option>
                     <option value="rating">Note</option>
                     <option value="popularity">Popularité</option>
                   </select>
-                  <button 
-                    onClick={async () => {
-                      if (!user) {
-                        alert("Veuillez vous connecter pour ajouter des hotspots.");
-                        return;
-                      }
-                      const sampleHotspots = [
-                        {
-                          name: "Bistrot de la Mer",
-                          description: "Le meilleur poisson braisé de la côte avec vue sur l'océan.",
-                          type: "restaurant",
-                          location: "Zone Portuaire",
-                          city: "Lomé",
-                          rating: 4.8,
-                          createdAt: new Date().toISOString()
-                        },
-                        {
-                          name: "Le Patio",
-                          description: "Un bar lounge chic pour vos soirées entre amis.",
-                          type: "bar",
-                          location: "Cité OUA",
-                          city: "Lomé",
-                          rating: 4.5,
-                          createdAt: new Date().toISOString()
-                        },
-                        {
-                          name: "Coco Beach",
-                          description: "Détente et cocktails sur le sable fin.",
-                          type: "beach",
-                          location: "Route d'Aného",
-                          city: "Lomé",
-                          rating: 4.7,
-                          createdAt: new Date().toISOString()
+                    <button 
+                      onClick={async () => {
+                        if (!user) {
+                          alert("Veuillez vous connecter pour ajouter des hotspots.");
+                          return;
                         }
-                      ];
-                      try {
-                        for (const h of sampleHotspots) {
-                          await addDoc(collection(db, 'hotspots'), h);
+                        const sampleHotspots = [
+                          {
+                            name: "Bistrot de la Mer",
+                            description: "Le meilleur poisson braisé de la côte avec vue sur l'océan.",
+                            type: "restaurant",
+                            location: "Zone Portuaire",
+                            city: "Lomé",
+                            rating: 4.8,
+                            createdAt: new Date().toISOString()
+                          },
+                          {
+                            name: "Le Patio",
+                            description: "Un bar lounge chic pour vos soirées entre amis.",
+                            type: "bar",
+                            location: "Cité OUA",
+                            city: "Lomé",
+                            rating: 4.5,
+                            createdAt: new Date().toISOString()
+                          },
+                          {
+                            name: "Coco Beach",
+                            description: "Détente et cocktails sur le sable fin.",
+                            type: "beach",
+                            location: "Route d'Aného",
+                            city: "Lomé",
+                            rating: 4.7,
+                            createdAt: new Date().toISOString()
+                          }
+                        ];
+                        try {
+                          for (const h of sampleHotspots) {
+                            await addDoc(collection(db, 'hotspots'), h);
+                          }
+                          alert("Hotspots ajoutés !");
+                        } catch (err) {
+                          handleFirestoreError(err, OperationType.WRITE, 'hotspots');
                         }
-                        alert("Hotspots ajoutés !");
-                      } catch (err) {
-                        handleFirestoreError(err, OperationType.WRITE, 'hotspots');
-                      }
-                    }}
-                    className="bg-emerald-600 text-white p-2 rounded-xl shadow-lg shadow-emerald-100"
-                  >
-                    <Plus size={20} />
-                  </button>
+                      }}
+                      className="bg-white text-black p-2 rounded-xl shadow-lg shadow-orange-500/20"
+                    >
+                      <Plus size={20} />
+                    </button>
                 </div>
               </div>
               {isHotspotsLoading ? (
@@ -1152,9 +1385,9 @@ function AppContent() {
                   ))}
                 </div>
               ) : (
-                <div className="bg-white rounded-2xl p-12 text-center border border-dashed border-gray-200">
-                  <MapIcon className="mx-auto text-gray-200 mb-4" size={48} />
-                  <p className="text-gray-400 text-sm">Aucun hotspot répertorié pour cette ville.</p>
+                <div className="bg-[#1A1525] rounded-2xl p-12 text-center border border-dashed border-white/10">
+                  <MapIcon className="mx-auto text-white/30 mb-4" size={48} />
+                  <p className="text-white/50 text-sm">Aucun hotspot répertorié pour cette ville.</p>
                 </div>
               )}
             </motion.div>
@@ -1168,7 +1401,7 @@ function AppContent() {
               exit={{ opacity: 0, y: -20 }}
             >
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-black text-gray-900 tracking-tight">Mes Favoris</h2>
+                <h2 className="text-2xl font-black text-white tracking-tight">Mes Favoris</h2>
               </div>
               {events.filter(e => favorites.includes(e.id)).length > 0 ? (
                 events.filter(e => favorites.includes(e.id)).map(event => (
@@ -1178,15 +1411,16 @@ function AppContent() {
                     isFavorite={true}
                     onToggleFavorite={handleToggleFavorite}
                     onView={handleViewEvent}
+                    onEdit={handleEditEvent}
                   />
                 ))
               ) : (
-                <div className="bg-white rounded-2xl p-12 text-center border border-dashed border-gray-200">
-                  <Heart className="mx-auto text-gray-200 mb-4" size={48} />
-                  <p className="text-gray-400 text-sm">Vous n'avez pas encore d'événements favoris.</p>
+                <div className="bg-[#1A1525] rounded-2xl p-12 text-center border border-dashed border-white/10">
+                  <Heart className="mx-auto text-white/30 mb-4" size={48} />
+                  <p className="text-white/50 text-sm">Vous n'avez pas encore d'événements favoris.</p>
                   <button 
                     onClick={() => setActiveTab('events')}
-                    className="mt-4 text-emerald-600 font-bold text-sm"
+                    className="mt-4 text-purple-400 font-bold text-sm"
                   >
                     Découvrir les événements
                   </button>
@@ -1203,16 +1437,16 @@ function AppContent() {
               exit={{ opacity: 0, y: -20 }}
               className="space-y-6"
             >
-              <h2 className="text-2xl font-black text-gray-900 tracking-tight">Studio Créatif</h2>
+              <h2 className="text-2xl font-black text-white tracking-tight">Studio Créatif</h2>
               
-              <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
+              <div className="bg-white/5 rounded-3xl p-6 border border-white/10 shadow-sm">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center text-purple-600">
+                  <div className="w-10 h-10 bg-purple-500/20 rounded-xl flex items-center justify-center text-purple-400">
                     <ImageIcon size={20} />
                   </div>
                   <div>
-                    <h3 className="font-bold text-gray-900">Générateur d'Affiches</h3>
-                    <p className="text-xs text-gray-500">Créez des visuels uniques avec Gemini</p>
+                    <h3 className="font-bold text-white">Générateur d'Affiches</h3>
+                    <p className="text-xs text-purple-200/70">Créez des visuels uniques avec Gemini</p>
                   </div>
                 </div>
                 <button 
@@ -1223,19 +1457,19 @@ function AppContent() {
                 </button>
               </div>
 
-              <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
+              <div className="bg-white/5 rounded-3xl p-6 border border-white/10 shadow-sm">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center text-orange-600">
+                  <div className="w-10 h-10 bg-fuchsia-500/20 rounded-xl flex items-center justify-center text-fuchsia-400">
                     <Video size={20} />
                   </div>
                   <div>
-                    <h3 className="font-bold text-gray-900">Animation Veo</h3>
-                    <p className="text-xs text-gray-500">Animez vos photos en vidéos de 5s</p>
+                    <h3 className="font-bold text-white">Animation Veo</h3>
+                    <p className="text-xs text-purple-200/70">Animez vos photos en vidéos de 5s</p>
                   </div>
                 </div>
                 <button 
                   onClick={() => alert("Fonctionnalité Veo bientôt disponible !")}
-                  className="w-full bg-orange-600 text-white py-3 rounded-xl font-bold text-sm"
+                  className="w-full bg-fuchsia-600 text-white py-3 rounded-xl font-bold text-sm"
                 >
                   Essayer maintenant
                 </button>
@@ -1251,34 +1485,59 @@ function AppContent() {
               exit={{ opacity: 0, y: -20 }}
               className="text-center pt-12"
             >
-              <div className="w-24 h-24 rounded-full bg-gray-200 mx-auto mb-4 overflow-hidden border-4 border-white shadow-lg">
+              <div className="w-24 h-24 rounded-full bg-white/10 mx-auto mb-4 overflow-hidden border-4 border-[#1A1525] shadow-lg">
                 <img src={user.photoURL || ''} alt="" className="w-full h-full object-cover" />
               </div>
-              <h2 className="text-2xl font-black text-gray-900 mb-1">{user.displayName}</h2>
-              <p className="text-gray-500 text-sm mb-8">{user.email}</p>
+              <h2 className="text-2xl font-black text-white mb-1">{user.displayName}</h2>
+              <p className="text-purple-200/70 text-sm mb-8">{user.email}</p>
               
               <div className="grid grid-cols-2 gap-4 max-w-xs mx-auto mb-8">
-                <div className="bg-white p-4 rounded-2xl border border-gray-100">
-                  <p className="text-2xl font-black text-emerald-600">{events.length}</p>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Événements</p>
+                <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
+                  <p className="text-2xl font-black text-white">{events.length}</p>
+                  <p className="text-[10px] font-bold text-purple-200/50 uppercase tracking-widest">Événements</p>
                 </div>
-                <div className="bg-white p-4 rounded-2xl border border-gray-100">
-                  <p className="text-2xl font-black text-emerald-600">{moments.length}</p>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Moments</p>
+                <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
+                  <p className="text-2xl font-black text-white">{moments.length}</p>
+                  <p className="text-[10px] font-bold text-purple-200/50 uppercase tracking-widest">Moments</p>
                 </div>
+              </div>
+
+              <div className="max-w-xs mx-auto space-y-3 mb-8">
+                {(userProfile?.role === 'admin' || user.email === 'marxist1991@gmail.com') && (
+                  <button 
+                    onClick={() => setActiveTab('admin')}
+                    className="w-full bg-gradient-to-r from-red-600 to-orange-600 text-white py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform shadow-lg shadow-red-500/20"
+                  >
+                    <ShieldAlert size={18} />
+                    Dashboard Admin
+                  </button>
+                )}
+                
+                <button 
+                  onClick={() => setIsFeedbackOpen(true)}
+                  className="w-full bg-white/5 border border-white/10 text-white py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-white/10 transition-colors"
+                >
+                  <MessageSquare size={18} />
+                  Donner son avis
+                </button>
               </div>
 
               {user.email === 'marxist1991@gmail.com' && (
                 <button 
                   onClick={handleSeedData}
-                  className="bg-gray-100 text-gray-600 px-6 py-2 rounded-xl text-xs font-bold uppercase tracking-widest mb-4"
+                  className="bg-white/10 text-white/70 hover:text-white hover:bg-white/20 px-6 py-2 rounded-xl text-xs font-bold uppercase tracking-widest mb-4 transition-colors"
                 >
                   Générer des données de test
                 </button>
               )}
             </motion.div>
           )}
+
+          {(userProfile?.role === 'admin' || user?.email === 'marxist1991@gmail.com') && activeTab === 'admin' && (
+            <AdminDashboard onBack={() => setActiveTab('profile')} />
+          )}
         </AnimatePresence>
+        </Suspense>
       </main>
 
       <AnimatePresence>
@@ -1287,18 +1546,18 @@ function AppContent() {
             initial={{ opacity: 0, y: 50, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.9 }}
-            className="fixed bottom-24 left-6 right-6 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl z-50 flex items-start gap-3 border border-slate-800"
+            className="fixed bottom-24 left-6 right-6 bg-[#1A1525]/90 backdrop-blur-xl text-white p-4 rounded-2xl shadow-2xl z-50 flex items-start gap-3 border border-white/10"
           >
-            <div className="w-10 h-10 bg-emerald-500/20 rounded-full flex items-center justify-center shrink-0">
-              <Bell className="text-emerald-400" size={20} />
+            <div className="w-10 h-10 bg-purple-500/20 rounded-full flex items-center justify-center shrink-0">
+              <Bell className="text-purple-400" size={20} />
             </div>
             <div className="flex-1">
               <h4 className="font-bold text-sm mb-1">{toastNotification.title}</h4>
-              <p className="text-xs text-slate-300 leading-relaxed">{toastNotification.message}</p>
+              <p className="text-xs text-purple-200/70 leading-relaxed">{toastNotification.message}</p>
             </div>
             <button 
               onClick={() => setToastNotification(null)}
-              className="text-slate-400 hover:text-white transition-colors"
+              className="text-white/50 hover:text-white transition-colors"
             >
               <X size={16} />
             </button>
@@ -1306,35 +1565,44 @@ function AppContent() {
         )}
       </AnimatePresence>
 
-      <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Suspense fallback={null}>
+        <AddEventModal 
+          isOpen={isAddEventOpen} 
+          onClose={() => {
+            setIsAddEventOpen(false);
+            setEventToEdit(null);
+          }} 
+          selectedCity={selectedCity}
+          eventToEdit={eventToEdit}
+        />
 
-      <AddEventModal 
-        isOpen={isAddEventOpen} 
-        onClose={() => setIsAddEventOpen(false)} 
-        selectedCity={selectedCity}
-      />
+        <AddMomentModal 
+          isOpen={isAddMomentOpen} 
+          onClose={() => setIsAddMomentOpen(false)} 
+          selectedCity={momentsCityFilter !== 'all' ? momentsCityFilter : selectedCity} 
+        />
 
-      <AddMomentModal 
-        isOpen={isAddMomentOpen} 
-        onClose={() => setIsAddMomentOpen(false)} 
-        selectedCity={selectedCity}
-      />
+        <FeedbackModal
+          isOpen={isFeedbackOpen}
+          onClose={() => setIsFeedbackOpen(false)}
+        />
+      </Suspense>
     </div>
   );
 }
 
 function SkeletonEventCard() {
   return (
-    <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 mb-4 animate-pulse">
-      <div className="h-48 bg-gray-200"></div>
-      <div className="p-4">
+    <div className="bg-[#1A1525] rounded-3xl overflow-hidden shadow-sm border border-white/10 mb-6 animate-pulse">
+      <div className="h-48 bg-white/5"></div>
+      <div className="p-5">
         <div className="flex flex-col gap-2 mb-3">
-          <div className="h-4 bg-gray-200 rounded w-1/3"></div>
-          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+          <div className="h-4 bg-white/10 rounded w-1/3"></div>
+          <div className="h-4 bg-white/10 rounded w-1/2"></div>
         </div>
-        <div className="h-4 bg-gray-200 rounded w-full mb-2"></div>
-        <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-        <div className="mt-4 h-8 bg-gray-100 rounded-xl w-full"></div>
+        <div className="h-4 bg-white/10 rounded w-full mb-2"></div>
+        <div className="h-4 bg-white/10 rounded w-5/6"></div>
+        <div className="mt-4 h-8 bg-white/5 rounded-xl w-full"></div>
       </div>
     </div>
   );
@@ -1342,20 +1610,20 @@ function SkeletonEventCard() {
 
 function SkeletonMomentCard() {
   return (
-    <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 animate-pulse h-48">
-      <div className="w-full h-full bg-gray-200"></div>
+    <div className="bg-[#1A1525] rounded-3xl overflow-hidden shadow-sm border border-white/10 animate-pulse h-48">
+      <div className="w-full h-full bg-white/5"></div>
     </div>
   );
 }
 
 function SkeletonHotspotCard() {
   return (
-    <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 mb-4 animate-pulse flex">
-      <div className="w-24 h-24 bg-gray-200 shrink-0"></div>
+    <div className="bg-[#1A1525] rounded-3xl overflow-hidden shadow-sm border border-white/10 mb-6 animate-pulse flex">
+      <div className="w-24 h-24 bg-white/5 shrink-0"></div>
       <div className="p-3 flex-1">
-        <div className="h-4 bg-gray-200 rounded w-1/2 mb-2"></div>
-        <div className="h-3 bg-gray-200 rounded w-full mb-1"></div>
-        <div className="h-3 bg-gray-200 rounded w-3/4"></div>
+        <div className="h-4 bg-white/10 rounded w-1/2 mb-2"></div>
+        <div className="h-3 bg-white/10 rounded w-full mb-1"></div>
+        <div className="h-3 bg-white/10 rounded w-3/4"></div>
       </div>
     </div>
   );

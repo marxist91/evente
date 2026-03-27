@@ -12,7 +12,10 @@ service cloud.firestore {
     // Fields: id, title, description, date, location, city, category, imageUrl, authorUid, createdAt
     //
     // Collection: moments
-    // Fields: id, videoUrl, thumbnailUrl, caption, city, eventId, authorUid, authorName, createdAt
+    // Fields: id, videoUrl, thumbnailUrl, caption, city, eventId, authorUid, authorName, createdAt, likesCount, likedBy, commentsCount
+    //
+    // Collection: moments/{momentId}/comments
+    // Fields: id, text, authorUid, authorName, authorPhoto, createdAt
     //
     // Collection: users/{uid}/favorites
     // Fields: eventId, createdAt
@@ -50,12 +53,17 @@ service cloud.firestore {
     // Domain Validators
     // ===============================================================
     function isValidUser(data) {
-      return data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'role']) &&
+      return data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'role', 'notificationsEnabled', 'notificationCity', 'preferences', 'history', 'lastLogin', 'lastLogout', 'isOnline', 'forceLogout', 'lastSeen']) &&
              data.uid is string && data.uid.size() > 0 &&
              data.displayName is string && data.displayName.size() > 0 && data.displayName.size() < 100 &&
              isValidEmail(data.email) &&
              isValidOptionalUrl(data.get('photoURL', null)) &&
-             (data.role == 'user' || data.role == 'admin');
+             (data.role == 'user' || data.role == 'admin') &&
+             (data.get('lastLogin', null) == null || data.get('lastLogin', null) is string) &&
+             (data.get('lastLogout', null) == null || data.get('lastLogout', null) is string) &&
+             (data.get('isOnline', null) == null || data.get('isOnline', null) is bool) &&
+             (data.get('forceLogout', null) == null || data.get('forceLogout', null) is bool) &&
+             (data.get('lastSeen', null) == null || data.get('lastSeen', null) is string);
     }
 
     function isValidEvent(data) {
@@ -96,7 +104,41 @@ service cloud.firestore {
              (data.get('caption', null) == null || data.get('caption', null) is string) &&
              (data.get('thumbnailUrl', null) == null || isValidOptionalUrl(data.get('thumbnailUrl', null))) &&
              (data.get('eventId', null) == null || data.get('eventId', null) is string) &&
-             (data.get('createdAt', null) == null || data.get('createdAt', null) is string);
+             (data.get('createdAt', null) == null || data.get('createdAt', null) is string) &&
+             (!('likesCount' in data) || data.likesCount is number) &&
+             (!('commentsCount' in data) || data.commentsCount is number) &&
+             (!('likedBy' in data) || data.likedBy is list);
+    }
+
+    function isValidMomentComment(data) {
+      return data.keys().hasAll(['authorUid', 'text', 'createdAt']) &&
+             data.authorUid == request.auth.uid &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 1000 &&
+             data.createdAt is string &&
+             (data.get('authorName', null) == null || data.get('authorName', null) is string) &&
+             (data.get('authorPhoto', null) == null || isValidOptionalUrl(data.get('authorPhoto', null)));
+    }
+
+    function isValidMomentSocialUpdate() {
+      let affected = request.resource.data.diff(resource.data).affectedKeys();
+      let oldC = resource.data.get('commentsCount', 0);
+      let newC = request.resource.data.get('commentsCount', 0);
+      let oldL = resource.data.get('likesCount', 0);
+      let newL = request.resource.data.get('likesCount', 0);
+      let oldLB = resource.data.get('likedBy', []);
+      let newLB = request.resource.data.get('likedBy', []);
+
+      return affected.hasOnly(['likesCount', 'likedBy', 'commentsCount']) &&
+             (!affected.hasAny(['commentsCount']) || math.abs(newC - oldC) == 1) &&
+             (!affected.hasAny(['likesCount', 'likedBy']) || 
+               (affected.hasAll(['likesCount', 'likedBy']) &&
+                math.abs(newL - oldL) == 1 &&
+                (newL > oldL ?
+                  (newLB.size() == oldLB.size() + 1 && newLB.hasAll(oldLB) && newLB.hasAll([request.auth.uid])) :
+                  (oldLB.size() == newLB.size() + 1 && oldLB.hasAll(newLB) && oldLB.hasAll([request.auth.uid]))
+                )
+               )
+             );
     }
 
     function isValidHotspot(data) {
@@ -163,8 +205,17 @@ service cloud.firestore {
     match /moments/{momentId} {
       allow read: if true;
       allow create: if isAuthenticated() && isValidMoment(request.resource.data);
-      allow update: if (isAuthenticated() && resource.data.authorUid == request.auth.uid && isValidMoment(request.resource.data)) || isAdmin();
+      allow update: if (isAuthenticated() && resource.data.authorUid == request.auth.uid && isValidMoment(request.resource.data)) || 
+                       isAdmin() || 
+                       (isAuthenticated() && isValidMomentSocialUpdate());
       allow delete: if (isAuthenticated() && resource.data.authorUid == request.auth.uid) || isAdmin();
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isAuthenticated() && isValidMomentComment(request.resource.data);
+        allow update: if isAuthenticated() && resource.data.authorUid == request.auth.uid && isValidMomentComment(request.resource.data);
+        allow delete: if isAuthenticated() && (resource.data.authorUid == request.auth.uid || isAdmin());
+      }
     }
 
     match /hotspots/{hotspotId} {
@@ -186,6 +237,17 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isValidComment(request.resource.data);
       allow update: if isAuthenticated() && resource.data.authorUid == request.auth.uid && isValidComment(request.resource.data);
       allow delete: if isAuthenticated() && (resource.data.authorUid == request.auth.uid || isAdmin());
+    }
+
+    match /feedback/{feedbackId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated() && 
+                    request.resource.data.keys().hasAll(['userId', 'userName', 'type', 'message', 'status', 'createdAt']) &&
+                    request.resource.data.userId == request.auth.uid &&
+                    request.resource.data.type in ['bug', 'suggestion', 'other'] &&
+                    request.resource.data.status == 'new';
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
     }
   }
 }

@@ -30,7 +30,7 @@ export function HotspotCard({ hotspot }: HotspotCardProps) {
   };
 
   return (
-    <div className="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 mb-6 relative hover:shadow-md transition-all duration-300">
+    <div className="bg-[#1A1525] rounded-3xl overflow-hidden shadow-sm border border-white/10 mb-6 relative hover:shadow-orange-500/10 transition-all duration-300">
       <div className="relative h-48 cursor-pointer" onClick={() => setShowDetails(!showDetails)}>
         <img
           src={hotspot.imageUrl || `https://picsum.photos/seed/${hotspot.id}/800/600`}
@@ -38,9 +38,9 @@ export function HotspotCard({ hotspot }: HotspotCardProps) {
           className="w-full h-full object-cover"
           referrerPolicy="no-referrer"
         />
-        <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-md px-4 py-1.5 rounded-full flex items-center gap-2 shadow-sm">
+        <div className="absolute top-4 left-4 bg-[#0B0814]/90 backdrop-blur-md px-4 py-1.5 rounded-full flex items-center gap-2 shadow-sm border border-white/10">
           <Star size={12} className="text-amber-500 fill-amber-500" />
-          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-700">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-purple-200">
             {hotspot.type}
           </span>
         </div>
@@ -51,40 +51,40 @@ export function HotspotCard({ hotspot }: HotspotCardProps) {
               e.stopPropagation();
               setIsConfirmDeleteOpen(true);
             }}
-            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/90 backdrop-blur-md text-slate-400 hover:text-rose-600 flex items-center justify-center transition-all shadow-lg"
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-[#0B0814]/90 backdrop-blur-md text-purple-200/50 hover:text-rose-500 flex items-center justify-center transition-all shadow-lg border border-white/10"
           >
             <Trash2 size={18} />
           </button>
         )}
 
         {hotspot.rating && (
-          <div className="absolute bottom-4 right-4 bg-slate-900/80 backdrop-blur-md px-3 py-1 rounded-full flex items-center gap-1 text-white shadow-sm">
+          <div className="absolute bottom-4 right-4 bg-[#0B0814]/80 backdrop-blur-md px-3 py-1 rounded-full flex items-center gap-1 text-white shadow-sm border border-white/10">
             <Star size={12} className="fill-amber-400 text-amber-400" />
             <span className="text-xs font-bold">{hotspot.rating}</span>
           </div>
         )}
       </div>
       <div className="p-5 cursor-pointer" onClick={() => setShowDetails(!showDetails)}>
-        <h3 className="text-lg font-black text-slate-900 leading-tight mb-2">{hotspot.name}</h3>
+        <h3 className="text-lg font-black text-white leading-tight mb-2">{hotspot.name}</h3>
         <a 
           href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${hotspot.location}, ${hotspot.city}, Togo`)}`}
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
-          className="flex items-center gap-2 text-slate-500 text-sm mb-3 hover:text-brand-primary transition-colors group"
+          className="flex items-center gap-2 text-purple-200/70 text-sm mb-3 hover:text-purple-400 transition-colors group"
         >
-          <MapPin size={14} className="text-brand-primary group-hover:scale-110 transition-transform" />
-          <span className="underline decoration-brand-primary/30 underline-offset-2">{hotspot.location}, {hotspot.city}</span>
+          <MapPin size={14} className="text-purple-400 group-hover:scale-110 transition-transform" />
+          <span className="underline decoration-purple-500/30 underline-offset-2">{hotspot.location}, {hotspot.city}</span>
         </a>
-        <p className="text-slate-600 text-sm leading-relaxed line-clamp-2">{hotspot.description}</p>
+        <p className="text-purple-200/80 text-sm leading-relaxed line-clamp-2">{hotspot.description}</p>
         
         {showDetails && (
-          <div className="mt-6 pt-6 border-t border-slate-100">
+          <div className="mt-6 pt-6 border-t border-white/10">
             <Reviews hotspotId={hotspot.id} />
           </div>
         )}
 
-        <div className="mt-6 flex items-center justify-center text-slate-300">
+        <div className="mt-6 flex items-center justify-center text-purple-200/30">
           <ChevronRight size={20} className={cn("transition-transform duration-300", showDetails && "rotate-90")} />
         </div>
       </div>

@@ -90,6 +90,9 @@ export function AddMomentModal({ isOpen, onClose, selectedCity }: AddMomentModal
           authorUid: auth.currentUser!.uid,
           authorName: auth.currentUser!.displayName || 'Anonyme',
           createdAt: new Date().toISOString(),
+          likesCount: 0,
+          likedBy: [],
+          commentsCount: 0,
         };
 
         if (formData.locationName) {
@@ -155,11 +158,11 @@ export function AddMomentModal({ isOpen, onClose, selectedCity }: AddMomentModal
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-      <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-        <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10">
-          <h2 className="text-xl font-black text-gray-900 tracking-tight">Partager un Moment</h2>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#0B0814]/80 backdrop-blur-md">
+      <div className="bg-[#1A1525] border border-white/10 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+        <div className="p-6 border-b border-white/10 flex justify-between items-center bg-[#1A1525]/80 backdrop-blur-xl sticky top-0 z-10">
+          <h2 className="text-xl font-black text-white tracking-tight">Partager un Moment</h2>
+          <button onClick={onClose} className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-colors">
             <X size={20} />
           </button>
         </div>
@@ -174,10 +177,10 @@ export function AddMomentModal({ isOpen, onClose, selectedCity }: AddMomentModal
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Video Upload */}
               <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-wider text-gray-400">Vidéo du moment</label>
+                <label className="text-xs font-bold uppercase tracking-wider text-purple-300">Vidéo du moment</label>
                 <div 
                   onClick={() => !loading && document.getElementById('moment-video')?.click()}
-                  className={`relative aspect-[9/16] max-h-[400px] mx-auto rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center ${!loading ? 'cursor-pointer hover:border-brand-primary/50 hover:bg-brand-primary/5' : 'cursor-not-allowed opacity-70'} transition-all overflow-hidden bg-gray-50`}
+                  className={`relative aspect-[9/16] max-h-[400px] mx-auto rounded-2xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center ${!loading ? 'cursor-pointer hover:border-purple-500/50 hover:bg-purple-500/5' : 'cursor-not-allowed opacity-70'} transition-all overflow-hidden bg-white/5`}
                 >
                   {videoPreview ? (
                     <>
@@ -189,16 +192,16 @@ export function AddMomentModal({ isOpen, onClose, selectedCity }: AddMomentModal
                         loop 
                       />
                       {loading && (
-                        <div className="absolute inset-0 bg-slate-900/80 flex flex-col items-center justify-center text-white backdrop-blur-md z-20">
+                        <div className="absolute inset-0 bg-[#0B0814]/80 flex flex-col items-center justify-center text-white backdrop-blur-md z-20">
                           <div className="relative flex items-center justify-center mb-4">
-                            <svg className="animate-spin h-14 w-14 text-brand-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <svg className="animate-spin h-14 w-14 text-purple-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                               <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"></circle>
                               <path className="opacity-100" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
                             <Video size={18} className="absolute text-white animate-pulse" />
                           </div>
                           <span className="text-sm font-bold tracking-wide">Traitement en cours...</span>
-                          <span className="text-xs text-slate-300 mt-2 text-center px-6">Veuillez patienter pendant l'optimisation de votre moment.</span>
+                          <span className="text-xs text-white/60 mt-2 text-center px-6">Veuillez patienter pendant l'optimisation de votre moment.</span>
                         </div>
                       )}
                       {!loading && (
@@ -210,7 +213,7 @@ export function AddMomentModal({ isOpen, onClose, selectedCity }: AddMomentModal
                               setVideoFile(null);
                               setVideoPreview(null);
                             }}
-                            className="p-2 bg-black/50 text-white rounded-full backdrop-blur-md hover:bg-black/70 transition-colors"
+                            className="p-2 bg-black/50 text-white rounded-full backdrop-blur-md hover:bg-black/70 transition-colors border border-white/10"
                           >
                             <X size={16} />
                           </button>
@@ -219,11 +222,11 @@ export function AddMomentModal({ isOpen, onClose, selectedCity }: AddMomentModal
                     </>
                   ) : (
                     <>
-                      <div className="bg-brand-primary/10 p-4 rounded-full mb-3">
-                        <Upload className="text-brand-primary" size={32} />
+                      <div className="bg-purple-500/20 p-4 rounded-full mb-3">
+                        <Upload className="text-purple-400" size={32} />
                       </div>
-                      <span className="text-sm font-bold text-gray-900">Sélectionner une vidéo</span>
-                      <span className="text-xs text-gray-400 mt-1">Format vertical recommandé</span>
+                      <span className="text-sm font-bold text-white">Sélectionner une vidéo</span>
+                      <span className="text-xs text-white/50 mt-1">Format vertical recommandé</span>
                     </>
                   )}
                   <input 
@@ -237,9 +240,9 @@ export function AddMomentModal({ isOpen, onClose, selectedCity }: AddMomentModal
                 
                 {!videoPreview && (
                   <div className="flex items-center justify-center gap-4 mt-4">
-                    <div className="h-px bg-gray-200 flex-1" />
-                    <span className="text-xs text-gray-400 font-medium uppercase">ou</span>
-                    <div className="h-px bg-gray-200 flex-1" />
+                    <div className="h-px bg-white/10 flex-1" />
+                    <span className="text-xs text-purple-300 font-medium uppercase">ou</span>
+                    <div className="h-px bg-white/10 flex-1" />
                   </div>
                 )}
                 
@@ -247,7 +250,7 @@ export function AddMomentModal({ isOpen, onClose, selectedCity }: AddMomentModal
                   <button
                     type="button"
                     onClick={() => setRecordingMode(true)}
-                    className="w-full mt-4 flex items-center justify-center gap-2 py-3 px-4 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition-colors"
+                    className="w-full mt-4 flex items-center justify-center gap-2 py-3 px-4 bg-white/5 border border-white/10 text-white rounded-xl font-bold hover:bg-white/10 transition-colors"
                   >
                     <Camera size={18} />
                     Filmer directement
@@ -257,7 +260,7 @@ export function AddMomentModal({ isOpen, onClose, selectedCity }: AddMomentModal
 
               {/* Caption */}
               <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-wider text-gray-400 flex items-center gap-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-purple-300 flex items-center gap-2">
                   <Type size={14} /> Légende
                 </label>
                 <textarea
@@ -266,19 +269,19 @@ export function AddMomentModal({ isOpen, onClose, selectedCity }: AddMomentModal
                   value={formData.caption}
                   onChange={e => setFormData({ ...formData, caption: e.target.value })}
                   placeholder="Décrivez ce moment incroyable..."
-                  className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-brand-primary/20 transition-all resize-none"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/30 focus:ring-2 focus:ring-purple-500/50 transition-all resize-none"
                 />
               </div>
 
               {/* City */}
               <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-wider text-gray-400 flex items-center gap-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-purple-300 flex items-center gap-2">
                   <MapPin size={14} /> Ville
                 </label>
                 <select
                   value={formData.city}
                   onChange={e => setFormData({ ...formData, city: e.target.value as TogoCity })}
-                  className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-brand-primary/20 transition-all"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:ring-2 focus:ring-purple-500/50 transition-all [&>option]:bg-[#1A1525] [&>option]:text-white"
                 >
                   {TOGO_CITIES.map(city => (
                     <option key={city} value={city}>{city}</option>
@@ -288,7 +291,7 @@ export function AddMomentModal({ isOpen, onClose, selectedCity }: AddMomentModal
 
               {/* Exact Location */}
               <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-wider text-gray-400 flex items-center gap-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-purple-300 flex items-center gap-2">
                   <MapPin size={14} /> Lieu exact (Optionnel)
                 </label>
                 <div className="flex gap-2">
@@ -297,20 +300,20 @@ export function AddMomentModal({ isOpen, onClose, selectedCity }: AddMomentModal
                     value={formData.locationName}
                     onChange={e => setFormData({ ...formData, locationName: e.target.value })}
                     placeholder="Ex: Plage de Lomé, Bar VIP..."
-                    className="flex-1 bg-gray-50 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-brand-primary/20 transition-all"
+                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/30 focus:ring-2 focus:ring-purple-500/50 transition-all"
                   />
                   <button
                     type="button"
                     onClick={handleGetLocation}
                     disabled={isLocating}
-                    className="p-3 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition-colors disabled:opacity-50 flex-shrink-0"
+                    className="p-3 bg-white/5 border border-white/10 text-white rounded-xl hover:bg-white/10 transition-colors disabled:opacity-50 flex-shrink-0"
                     title="Utiliser ma position actuelle"
                   >
                     {isLocating ? <Loader2 size={20} className="animate-spin" /> : <Navigation size={20} />}
                   </button>
                 </div>
                 {coordinates && (
-                  <p className="text-xs text-emerald-600 flex items-center gap-1 mt-1 font-medium">
+                  <p className="text-xs text-purple-400 flex items-center gap-1 mt-1 font-medium">
                     <Check size={12} /> Position GPS enregistrée
                   </p>
                 )}
@@ -318,21 +321,21 @@ export function AddMomentModal({ isOpen, onClose, selectedCity }: AddMomentModal
 
               {/* Time */}
               <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-wider text-gray-400 flex items-center gap-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-purple-300 flex items-center gap-2">
                   <Clock size={14} /> Heure (Optionnel)
                 </label>
                 <input
                   type="time"
                   value={formData.time}
                   onChange={e => setFormData({ ...formData, time: e.target.value })}
-                  className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-brand-primary/20 transition-all"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:ring-2 focus:ring-purple-500/50 transition-all [color-scheme:dark]"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={loading || !videoFile}
-                className="w-full bg-brand-primary text-slate-900 font-bold py-4 rounded-2xl shadow-lg shadow-brand-primary/20 hover:bg-emerald-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="w-full bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-orange-500/30 hover:from-purple-500 hover:to-fuchsia-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {loading ? (
                   <>

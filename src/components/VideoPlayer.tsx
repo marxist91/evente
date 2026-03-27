@@ -4,6 +4,7 @@ import { Loader2, Play, Pause, Volume2, VolumeX } from 'lucide-react';
 interface VideoPlayerProps {
   src: string;
   className?: string;
+  wrapperClassName?: string;
   autoPlay?: boolean;
   loop?: boolean;
   muted?: boolean;
@@ -14,6 +15,7 @@ interface VideoPlayerProps {
 export function VideoPlayer({ 
   src, 
   className = "w-full h-full object-cover", 
+  wrapperClassName = "w-full h-full",
   autoPlay = true, 
   loop = true, 
   muted = true, 
@@ -91,7 +93,7 @@ export function VideoPlayer({
 
   return (
     <div 
-      className="relative w-full h-full bg-slate-900 group cursor-pointer"
+      className={`relative bg-[#0B0814] group cursor-pointer flex items-center justify-center overflow-hidden ${wrapperClassName}`}
       onClick={togglePlay}
     >
       <video
@@ -102,6 +104,7 @@ export function VideoPlayer({
         muted={isMuted}
         playsInline={playsInline}
         autoPlay={autoPlay}
+        referrerPolicy="no-referrer"
         onLoadStart={() => setIsBuffering(true)}
         onWaiting={() => setIsBuffering(true)}
         onPlaying={() => { setIsBuffering(false); setIsPlaying(true); }}
@@ -110,7 +113,7 @@ export function VideoPlayer({
         onTimeUpdate={handleTimeUpdate}
       />
       {isBuffering && (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/30 backdrop-blur-[2px] transition-opacity duration-300 pointer-events-none">
+        <div className="absolute inset-0 flex items-center justify-center bg-[#0B0814]/30 backdrop-blur-[2px] transition-opacity duration-300 pointer-events-none">
           <Loader2 className="w-8 h-8 text-white/70 animate-spin" />
         </div>
       )}
@@ -141,7 +144,7 @@ export function VideoPlayer({
               onClick={handleSeek}
             >
               <div 
-                className="h-full bg-brand-primary rounded-full transition-all duration-100 ease-linear"
+                className="h-full bg-orange-500 rounded-full transition-all duration-100 ease-linear"
                 style={{ width: `${progress}%` }}
               />
             </div>

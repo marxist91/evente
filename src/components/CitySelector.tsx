@@ -17,8 +17,8 @@ export function CitySelector({ selectedCity, setSelectedCity }: CitySelectorProp
           className={cn(
             "flex items-center gap-2 px-4 py-2 rounded-full whitespace-nowrap text-sm font-medium transition-all",
             selectedCity === city
-              ? "bg-emerald-600 text-white shadow-lg shadow-emerald-200"
-              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              ? "bg-purple-600 text-white shadow-lg shadow-orange-500/30 border border-purple-500/50"
+              : "bg-white/5 text-purple-200/70 hover:bg-white/10 hover:text-white border border-white/10"
           )}
         >
           <MapPin size={14} />

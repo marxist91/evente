@@ -1,3 +1,13 @@
+export interface Feedback {
+  id: string;
+  userId: string;
+  userName: string;
+  type: 'bug' | 'suggestion' | 'other';
+  message: string;
+  status: 'new' | 'read' | 'resolved';
+  createdAt: string;
+}
+
 export interface UserProfile {
   uid: string;
   displayName: string;
@@ -8,6 +18,16 @@ export interface UserProfile {
   notificationCity?: string;
   preferences?: string[]; // Array of categories
   history?: string[]; // Array of event IDs
+  lastLogin?: string;
+  lastLogout?: string;
+  isOnline?: boolean;
+  forceLogout?: boolean;
+  lastSeen?: string;
+}
+
+export interface EventMedia {
+  type: 'image' | 'video';
+  url: string;
 }
 
 export interface Event {
@@ -20,6 +40,7 @@ export interface Event {
   city: string;
   category: 'culture' | 'party' | 'concert' | 'dance' | 'other';
   imageUrl?: string;
+  media?: EventMedia[];
   authorUid: string;
   createdAt: string;
   isRecurring?: boolean;
